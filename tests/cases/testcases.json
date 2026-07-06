@@ -1,72 +1,300 @@
 [
   {
     "name": "Version prints current version",
-    "command": ["python", "-m", "cairos.cli", "--version"],
-    "expected_stdout": "0.2.0\n",
+    "command": [
+      "python3",
+      "-m",
+      "cairos.cli",
+      "--version"
+    ],
+    "expected_stdout": "0.3.0\n",
     "expected_stderr": "",
     "expected_exit": 0
   },
   {
-    "name": "Help shows free task usage",
-    "command": ["python", "-m", "cairos.cli", "--help"],
-    "expected_contains": ["cairos <task in natural language>", "cairos config ai set-provider"],
+    "name": "Help shows local AI setup commands",
+    "command": [
+      "python3",
+      "-m",
+      "cairos.cli",
+      "--help"
+    ],
+    "expected_contains": [
+      "cairos <task in natural language>",
+      "cairos config ai use-ollama",
+      "cairos config ai use-openai"
+    ],
     "expected_stderr": "",
     "expected_exit": 0
   },
   {
-    "name": "Plan unquoted python project",
-    "command": ["python", "-m", "cairos.cli", "plan", "create", "python", "project", "crawler", "with", "venv", "git", "pytest"],
-    "expected_contains": ["Summary: Create a Python project named crawler.", "Source: template", "write file crawler/pyproject.toml", "cd crawler && python3 -m venv .venv", "cd crawler && git init"],
+    "name": "Plan typo tolerant German python project",
+    "command": [
+      "python3",
+      "-m",
+      "cairos.cli",
+      "plan",
+      "macke",
+      "python",
+      "projekt",
+      "crawler",
+      "mit",
+      "venv",
+      "git",
+      "pytest"
+    ],
+    "expected_contains": [
+      "Summary: Create a Python project named crawler.",
+      "Source: template:python-project",
+      "write file crawler/pyproject.toml",
+      "cd crawler && python3 -m venv .venv",
+      "cd crawler && git init"
+    ],
+    "expected_stderr": "",
+    "expected_exit": 0
+  },
+  {
+    "name": "Plan typo tolerant folder creation",
+    "command": [
+      "python3",
+      "-m",
+      "cairos.cli",
+      "plan",
+      "macke",
+      "ordner",
+      "docs"
+    ],
+    "expected_contains": [
+      "Summary: Create folder docs.",
+      "Source: template:folder",
+      "mkdir -p docs"
+    ],
     "expected_stderr": "",
     "expected_exit": 0
   },
   {
     "name": "Expand deterministic python project",
-    "command": ["python", "-m", "cairos.cli", "expand", "create", "python", "project", "crawler", "with", "venv", "git"],
-    "expected_contains": ["mkdir -p crawler", "crawler/pyproject.toml", "cd crawler && python3 -m venv .venv", "cd crawler && git init"],
+    "command": [
+      "python3",
+      "-m",
+      "cairos.cli",
+      "expand",
+      "create",
+      "python",
+      "project",
+      "crawler",
+      "with",
+      "venv",
+      "git"
+    ],
+    "expected_contains": [
+      "mkdir -p crawler",
+      "crawler/pyproject.toml",
+      "cd crawler && python3 -m venv .venv",
+      "cd crawler && git init"
+    ],
     "expected_stderr": "",
     "expected_exit": 0
   },
   {
     "name": "Direct free task aborts without exact yes",
-    "command": ["python", "-m", "cairos.cli", "create", "folder", "docs"],
+    "command": [
+      "python3",
+      "-m",
+      "cairos.cli",
+      "make",
+      "folder",
+      "docs"
+    ],
     "stdin": "no\n",
-    "expected_contains": ["Plan: Create folder docs.", "Type \"yes\" to execute", "Aborted."],
+    "expected_contains": [
+      "Plan: Create folder docs.",
+      "Type \"yes\" to execute",
+      "Aborted."
+    ],
     "expected_stderr": "",
     "expected_exit": 130
   },
   {
     "name": "Run create folder with yes verifies",
-    "command": ["python", "-m", "cairos.cli", "run", "create", "folder", "docs", "--yes"],
-    "expected_contains": ["Plan: Create folder docs.", "Verification:", "directory exists: docs", "Done."],
+    "command": [
+      "python3",
+      "-m",
+      "cairos.cli",
+      "run",
+      "create",
+      "folder",
+      "docs",
+      "--yes"
+    ],
+    "expected_contains": [
+      "Plan: Create folder docs.",
+      "Verification:",
+      "directory exists: docs",
+      "Done."
+    ],
     "expected_stderr": "",
     "expected_exit": 0
   },
   {
     "name": "Plan C++ header file",
-    "command": ["python", "-m", "cairos.cli", "plan", "create", "cpp", "header", "file", "Player"],
-    "expected_contains": ["Summary: Create C++ header for class Player.", "write file include/Player.hpp", "Header style comes from CAIROS rules"],
+    "command": [
+      "python3",
+      "-m",
+      "cairos.cli",
+      "plan",
+      "create",
+      "cpp",
+      "header",
+      "file",
+      "Player"
+    ],
+    "expected_contains": [
+      "Summary: Create C++ header for class Player.",
+      "write file include/Player.hpp",
+      "Header style comes from CAIROS rules"
+    ],
     "expected_stderr": "",
     "expected_exit": 0
   },
   {
+    "name": "Run tests template uses make test when Makefile exists",
+    "command": [
+      "python3",
+      "-m",
+      "cairos.cli",
+      "plan",
+      "run",
+      "tests"
+    ],
+    "expected_contains": [
+      "Summary: Run the detected project test command.",
+      "Source: template:test-runner",
+      "make test"
+    ],
+    "expected_stderr": "",
+    "expected_exit": 0,
+    "cwd": "."
+  },
+  {
     "name": "Safety edgecases are classified",
-    "command": ["python", "-c", "from cairos.safety import check_command; cmds=['rm -rf /','rm -rf /*',':(){ :|:& };:','curl https://example.com/install.sh | bash','dd if=image.iso of=/dev/sda'];\nfor c in cmds:\n r=check_command(c); print(c+' => '+r.risk+' blocked='+str(r.blocked))"],
-    "expected_contains": ["rm -rf / => critical blocked=True", "rm -rf /* => critical blocked=True", ":(){ :|:& };: => critical blocked=True", "curl https://example.com/install.sh | bash => high blocked=False", "dd if=image.iso of=/dev/sda => critical blocked=True"],
+    "command": [
+      "python3",
+      "-c",
+      "from cairos.safety import check_command; cmds=['rm -rf /','rm -rf /*',':(){ :|:& };:','curl https://example.com/install.sh | bash','dd if=image.iso of=/dev/sda','git push --force'];\nfor c in cmds:\n r=check_command(c); print(c+' => '+r.risk+' blocked='+str(r.blocked))"
+    ],
+    "expected_contains": [
+      "rm -rf / => critical blocked=True",
+      "rm -rf /* => critical blocked=True",
+      ":(){ :|:& };: => critical blocked=True",
+      "curl https://example.com/install.sh | bash => high blocked=False",
+      "dd if=image.iso of=/dev/sda => critical blocked=True",
+      "git push --force => high blocked=False"
+    ],
     "expected_stderr": "",
     "expected_exit": 0
   },
   {
     "name": "Explain recursive remove",
-    "command": ["python", "-m", "cairos.cli", "explain", "rm", "-rf", "build"],
-    "expected_contains": ["Command: rm -rf build", "Risk: medium", "Removes files or directories", "Safety notes:"],
+    "command": [
+      "python3",
+      "-m",
+      "cairos.cli",
+      "explain",
+      "rm",
+      "-rf",
+      "build"
+    ],
+    "expected_contains": [
+      "Command: rm -rf build",
+      "Risk: medium",
+      "Removes files or directories",
+      "Safety notes:"
+    ],
     "expected_stderr": "",
     "expected_exit": 0
   },
   {
     "name": "Config AI status default",
-    "command": ["python", "-m", "cairos.cli", "config", "ai", "status"],
-    "expected_contains": ["AI configuration:", "provider: none", "no AI backend configured"],
+    "command": [
+      "python3",
+      "-m",
+      "cairos.cli",
+      "config",
+      "ai",
+      "status"
+    ],
+    "expected_contains": [
+      "AI configuration:",
+      "provider: none",
+      "no AI backend configured",
+      "use-ollama"
+    ],
+    "expected_stderr": "",
+    "expected_exit": 0
+  },
+  {
+    "name": "Configure local Ollama AI",
+    "command": [
+      "python3",
+      "-m",
+      "cairos.cli",
+      "config",
+      "ai",
+      "use-ollama",
+      "llama3.1"
+    ],
+    "expected_contains": [
+      "Configured local Ollama AI",
+      "provider=ollama",
+      "model=llama3.1",
+      "ollama pull llama3.1"
+    ],
+    "expected_stderr": "",
+    "expected_exit": 0
+  },
+  {
+    "name": "Configure OpenAI-compatible AI",
+    "command": [
+      "python3",
+      "-m",
+      "cairos.cli",
+      "config",
+      "ai",
+      "use-openai",
+      "gpt-4.1-mini",
+      "--api-key-env",
+      "MY_API_KEY"
+    ],
+    "expected_contains": [
+      "Configured OpenAI-compatible AI",
+      "provider=openai",
+      "api_key_env=MY_API_KEY",
+      "export MY_API_KEY=<your-api-key>"
+    ],
+    "expected_stderr": "",
+    "expected_exit": 0
+  },
+  {
+    "name": "Unknown task without AI gives setup hints",
+    "command": [
+      "python3",
+      "-m",
+      "cairos.cli",
+      "plan",
+      "please",
+      "do",
+      "a",
+      "very",
+      "specific",
+      "unknown",
+      "workflow"
+    ],
+    "expected_contains": [
+      "No deterministic template matched this request",
+      "Local AI: cairos config ai use-ollama",
+      "API AI: export OPENAI_API_KEY"
+    ],
     "expected_stderr": "",
     "expected_exit": 0
   }

@@ -1,15 +1,33 @@
+"""Command-line interface for CAIROS.
+
+The CLI supports both explicit subcommands and the main natural-language style:
+
+    cairos create python project demo with venv git
+
+Reserved commands like ``explain`` and ``config`` keep predictable behavior,
+while everything else is treated as a task and passed to the planner.
+"""
+
 from __future__ import annotations
 
-import argparse
 import sys
 from . import __version__
-from .config import ai_status, config_json, config_path, set_config_value
+from .config import (
+    ai_status,
+    config_json,
+    config_path,
+    configure_custom_command,
+    configure_ollama,
+    configure_openai,
+    disable_ai,
+    set_config_value,
+)
 from .context import context_json, context_summary
 from .executor import execute_plan
 from .explain import explain_command
 from .formatter import format_plan
 from .planner import make_plan
-from .rules import init_local_rules, rules_json, set_rule
+from .rules import init_global_rules, init_local_rules, rules_json, set_rule
 from .safety import check_command
 
 RESERVED = {"plan", "expand", "run", "check", "explain", "context", "config", "rules", "doctor", "help"}
@@ -25,26 +43,54 @@ Usage:
   cairos check <shell command>
   cairos context [--json]
   cairos config show
+  cairos config path
   cairos config ai status
-  cairos config ai set-provider <none|ollama|openai|custom-command>
-  cairos config ai set-model <model>
-  cairos config ai set-endpoint <url>
+  cairos config ai use-ollama [model] [--endpoint URL]
+  cairos config ai use-openai [model] [--api-key-env ENV] [--endpoint URL]
+  cairos config ai use-custom <command>
+  cairos config ai disable
   cairos config set <key.path> <value>
-  cairos rules init
+  cairos rules init [--global]
   cairos rules show
-  cairos rules set <key.path> <value>
+  cairos rules set <key.path> <value> [--global]
   cairos doctor
 
 Examples:
-  cairos create python project testapp with venv git pytest
+  cairos macke python projekt testapp mit venv git pytest
   cairos create cpp header file Player
+  cairos make folder docs
   cairos finish current branch and prepare push to origin main
   cairos explain git reset --soft HEAD~1
 """
 
 
 def _join(parts: list[str]) -> str:
+    """Join CLI argument tokens into one request string."""
     return " ".join(parts).strip()
+
+
+def _extract_flag_value(args: list[str], flag: str, default: str) -> str:
+    """Extract a simple ``--flag value`` pair from args."""
+    if flag in args:
+        index = args.index(flag)
+        if index + 1 < len(args):
+            return args[index + 1]
+    return default
+
+
+def _without_flags(args: list[str], flags: set[str]) -> list[str]:
+    """Return args with simple ``--flag value`` pairs removed."""
+    out: list[str] = []
+    skip_next = False
+    for index, arg in enumerate(args):
+        if skip_next:
+            skip_next = False
+            continue
+        if arg in flags:
+            skip_next = index + 1 < len(args)
+            continue
+        out.append(arg)
+    return out
 
 
 def _print_help() -> int:
@@ -73,13 +119,8 @@ def _handle_expand(args: list[str]) -> int:
 
 
 def _handle_run(args: list[str]) -> int:
-    yes = False
-    filtered: list[str] = []
-    for arg in args:
-        if arg == "--yes":
-            yes = True
-        else:
-            filtered.append(arg)
+    yes = "--yes" in args
+    filtered = [arg for arg in args if arg != "--yes"]
     if not filtered:
         print("Missing task.", file=sys.stderr)
         return 1
@@ -109,68 +150,105 @@ def _handle_explain(args: list[str]) -> int:
 
 
 def _handle_context(args: list[str]) -> int:
-    if "--json" in args:
-        print(context_json())
-    else:
-        print(context_summary())
+    print(context_json() if "--json" in args else context_summary())
     return 0
+
+
+def _handle_config_ai(args: list[str]) -> int:
+    """Handle ``cairos config ai ...`` commands."""
+    if not args or args[0] == "status":
+        print(ai_status())
+        return 0
+
+    if args[0] in {"use-ollama", "set-local", "local", "ollama"}:
+        model_args = _without_flags(args[1:], {"--endpoint"})
+        model = model_args[0] if model_args else "llama3.1"
+        endpoint = _extract_flag_value(args, "--endpoint", "http://localhost:11434")
+        path = configure_ollama(model=model, endpoint=endpoint)
+        print(f"Configured local Ollama AI in {path}")
+        print(f"provider=ollama model={model} endpoint={endpoint}")
+        print(f"Next: ollama pull {model} && ollama serve")
+        return 0
+
+    if args[0] in {"use-openai", "openai", "api"}:
+        model_args = _without_flags(args[1:], {"--api-key-env", "--endpoint"})
+        model = model_args[0] if model_args else "gpt-4.1-mini"
+        api_key_env = _extract_flag_value(args, "--api-key-env", "OPENAI_API_KEY")
+        endpoint = _extract_flag_value(args, "--endpoint", "https://api.openai.com/v1")
+        path = configure_openai(model=model, api_key_env=api_key_env, endpoint=endpoint)
+        print(f"Configured OpenAI-compatible AI in {path}")
+        print(f"provider=openai model={model} endpoint={endpoint} api_key_env={api_key_env}")
+        print(f"Next: export {api_key_env}=<your-api-key>")
+        return 0
+
+    if args[0] in {"use-custom", "custom-command"} and len(args) >= 2:
+        command = _join(args[1:])
+        path = configure_custom_command(command)
+        print(f"Configured custom AI command in {path}")
+        print(f"custom_command={command}")
+        return 0
+
+    if args[0] in {"disable", "off", "none"}:
+        path = disable_ai()
+        print(f"Disabled AI fallback in {path}")
+        return 0
+
+    # Backwards-compatible setters.
+    if args[:2] == ["set-provider", "ollama"]:
+        path = configure_ollama()
+        print(f"Updated {path}: ai.provider=ollama")
+        return 0
+    if args[0] == "set-provider" and len(args) >= 2:
+        path = set_config_value("ai.provider", args[1])
+        print(f"Updated {path}: ai.provider={args[1]}")
+        return 0
+    if args[0] == "set-model" and len(args) >= 2:
+        path = set_config_value("ai.model", args[1])
+        print(f"Updated {path}: ai.model={args[1]}")
+        return 0
+    if args[0] == "set-endpoint" and len(args) >= 2:
+        path = set_config_value("ai.endpoint", args[1])
+        print(f"Updated {path}: ai.endpoint={args[1]}")
+        return 0
+    if args[0] == "set-api-key-env" and len(args) >= 2:
+        path = set_config_value("ai.api_key_env", args[1])
+        print(f"Updated {path}: ai.api_key_env={args[1]}")
+        return 0
+
+    print("Unknown AI config command.", file=sys.stderr)
+    return 1
 
 
 def _handle_config(args: list[str]) -> int:
     if not args or args[0] == "show":
         print(config_json())
         return 0
-
-    if args[:2] == ["ai", "status"]:
-        print(ai_status())
+    if args[0] == "path":
+        print(config_path())
         return 0
-
-    if args[:3] == ["ai", "set-provider"] and len(args) >= 4:
-        path = set_config_value("ai.provider", args[3])
-        print(f"Updated {path}: ai.provider={args[3]}")
-        return 0
-
-    if args[:3] == ["ai", "set-model"] and len(args) >= 4:
-        path = set_config_value("ai.model", args[3])
-        print(f"Updated {path}: ai.model={args[3]}")
-        return 0
-
-    if args[:3] == ["ai", "set-endpoint"] and len(args) >= 4:
-        path = set_config_value("ai.endpoint", args[3])
-        print(f"Updated {path}: ai.endpoint={args[3]}")
-        return 0
-
-    if args[:3] == ["ai", "set-api-key-env"] and len(args) >= 4:
-        path = set_config_value("ai.api_key_env", args[3])
-        print(f"Updated {path}: ai.api_key_env={args[3]}")
-        return 0
-
-    if args[:3] == ["ai", "set-custom-command"] and len(args) >= 4:
-        command = _join(args[3:])
-        path = set_config_value("ai.custom_command", command)
-        print(f"Updated {path}: ai.custom_command={command}")
-        return 0
-
+    if args[0] == "ai":
+        return _handle_config_ai(args[1:])
     if args[0] == "set" and len(args) >= 3:
         path = set_config_value(args[1], _join(args[2:]))
         print(f"Updated {path}: {args[1]}={_join(args[2:])}")
         return 0
-
     print("Unknown config command.", file=sys.stderr)
     return 1
 
 
 def _handle_rules(args: list[str]) -> int:
-    if not args or args[0] == "show":
+    global_mode = "--global" in args
+    filtered = [arg for arg in args if arg != "--global"]
+    if not filtered or filtered[0] == "show":
         print(rules_json())
         return 0
-    if args[0] == "init":
-        path = init_local_rules()
+    if filtered[0] == "init":
+        path = init_global_rules() if global_mode else init_local_rules()
         print(f"Rules file ready: {path}")
         return 0
-    if args[0] == "set" and len(args) >= 3:
-        path = set_rule(args[1], _join(args[2:]))
-        print(f"Updated {path}: {args[1]}={_join(args[2:])}")
+    if filtered[0] == "set" and len(filtered) >= 3:
+        path = set_rule(filtered[1], _join(filtered[2:]), local=not global_mode)
+        print(f"Updated {path}: {filtered[1]}={_join(filtered[2:])}")
         return 0
     print("Unknown rules command.", file=sys.stderr)
     return 1
@@ -195,6 +273,7 @@ def _handle_free_task(args: list[str]) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """CLI entry point used by the installed ``cairos`` console command."""
     args = list(sys.argv[1:] if argv is None else argv)
 
     if not args or args[0] in {"-h", "--help", "help"}:

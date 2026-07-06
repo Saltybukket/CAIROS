@@ -2,37 +2,35 @@
 
 **CAIROS** means **Context-Aware Intelligent Runtime Operating Shell**.
 
-CAIROS is not a replacement for zsh, bash or fish. It is a command-line assistant that runs inside your normal shell and helps you plan, explain and safely execute shell tasks.
+CAIROS is a command-line assistant that runs inside your normal terminal. It is meant to support work in other projects without getting in the way. You install it once, then call `cairos ...` from any project folder.
 
 ---
 
-# 1. Main idea
+## 1. Design goal
 
-CAIROS receives a natural-language task:
+CAIROS should be useful even without AI.
 
-```bash
-cairos create python project testapp with venv git pytest
-```
-
-Then it follows this pipeline:
+Pipeline:
 
 ```text
-User request
+user request
+  -> normalize text and tolerate small typos
   -> collect compact context
-  -> try deterministic regex/template planner
-  -> if no template matches: try configured AI backend
-  -> run safety checks
-  -> print plan
+  -> try deterministic templates
+  -> if no template matches, try configured AI backend
+  -> scan the plan for risky commands
+  -> print the exact planned steps
   -> execute only after confirmation
-  -> verify result
-  -> summarize
+  -> verify results
 ```
 
-The AI is optional. CAIROS can already solve many simple tasks without AI.
+The AI is a fallback, not the main engine.
 
 ---
 
-# 2. Installation
+## 2. Installation
+
+### Development install
 
 From the project root:
 
@@ -40,64 +38,55 @@ From the project root:
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
-```
-
-Check:
-
-```bash
 cairos --version
-cairos --help
 ```
 
-Run the test suite:
+### Normal local install
 
 ```bash
-make test
+python -m pip install .
 ```
 
-The HTML report is generated at:
+### Recommended user install with `pipx`
 
-```text
-reports/testreport.html
+```bash
+pipx install .
 ```
+
+Then `cairos` is available in your shell from any folder.
 
 ---
 
-# 3. Natural-language usage
+## 3. Basic usage
 
-The intended default usage is:
+Main style:
 
 ```bash
-cairos <task>
+cairos <task in natural language>
 ```
 
 Examples:
 
 ```bash
+cairos make folder docs
+cairos macke ordner docs
 cairos create python project crawler with venv git pytest
+cairos mache python projekt crawler mit venv git pytest
 cairos create cpp project engine with cmake
 cairos create cpp header file Player
-cairos create folder docs
-cairos find large files
 cairos clean pycache
+cairos find large files
+cairos run tests
 cairos finish current branch and prepare push to origin main
 ```
 
-When a task changes files, CAIROS prints the plan and asks for confirmation.
-
-Default confirmation phrase:
-
-```text
-yes
-```
-
-For high-risk actions, CAIROS can require a stronger confirmation phrase.
+CAIROS accepts unquoted text because your shell passes the words as separate arguments and CAIROS joins them internally.
 
 ---
 
-# 4. Reserved commands
+## 4. Reserved commands
 
-Some commands have special meaning and are not treated as free natural language.
+Some commands are explicit modes:
 
 ```bash
 cairos plan <task>
@@ -111,17 +100,19 @@ cairos rules ...
 cairos doctor
 ```
 
+Everything else is interpreted as a normal task.
+
 ---
 
-# 5. `cairos plan`
+## 5. Planning without execution
 
-Creates a plan without executing it.
+Use `plan` to inspect what CAIROS would do:
 
 ```bash
-cairos plan create python project crawler with venv git pytest
+cairos plan macke python projekt demo mit venv git pytest
 ```
 
-Output includes:
+The output contains:
 
 ```text
 Summary
@@ -129,37 +120,29 @@ Source
 Risk
 Confirmation behavior
 Steps
-Verification
+Verification checks
 Notes
 ```
 
-This is the safest way to inspect what CAIROS would do.
+`Source` tells you whether the plan came from a deterministic template or AI.
 
 ---
 
-# 6. `cairos expand`
+## 6. Running tasks
 
-Prints a shell-equivalent command line.
-
-```bash
-cairos expand create python project crawler with venv git
-```
-
-This mode uses deterministic templates only. It does not call AI.
-
-If no deterministic template matches, CAIROS exits with code `1` and writes an error to stderr.
-
----
-
-# 7. `cairos run`
-
-Creates a plan and executes it.
+Direct task usage:
 
 ```bash
-cairos run create folder docs
+cairos make folder docs
 ```
 
-CAIROS prints the plan and asks:
+or explicit run mode:
+
+```bash
+cairos run make folder docs
+```
+
+For write actions, CAIROS asks:
 
 ```text
 Type "yes" to execute:
@@ -167,31 +150,33 @@ Type "yes" to execute:
 
 Only exact `yes` continues.
 
-For low/medium automation tests you can use:
+For automated low/medium tests:
 
 ```bash
-cairos run create folder docs --yes
+cairos run make folder docs --yes
 ```
 
-Use `--yes` carefully. Critical commands are still blocked.
+Critical commands are still blocked.
 
 ---
 
-# 8. Direct free task execution
+## 7. Expand mode
 
-This also works:
+`expand` prints a shell-equivalent command line from deterministic templates only:
 
 ```bash
-cairos create folder docs
+cairos expand create python project demo with venv git
 ```
 
-This behaves like `cairos run <task>` and asks for confirmation before changing files.
+This is useful for shell integrations and for checking what CAIROS thinks the command should be.
+
+If no local template matches, `expand` does not call AI.
 
 ---
 
-# 9. `cairos explain`
+## 8. Explain mode
 
-Explains a shell command and shows risk information.
+Explain a shell command:
 
 ```bash
 cairos explain git reset --soft HEAD~1
@@ -199,7 +184,7 @@ cairos explain rm -rf build
 cairos explain find . -type f -size +100M -print
 ```
 
-The output includes:
+Output includes:
 
 ```text
 Command
@@ -209,7 +194,7 @@ Safety notes
 Current context
 ```
 
-Currently deterministic explanations exist for common commands like:
+Current deterministic explanations include common commands such as:
 
 ```text
 git reset
@@ -228,89 +213,180 @@ python -m venv
 
 ---
 
-# 10. `cairos check`
-
-Checks a shell command for dangerous patterns.
-
-```bash
-cairos check rm -rf /
-cairos check git clean -fdx
-cairos check curl https://example.com/install.sh | bash
-```
+## 9. Safety behavior
 
 Risk levels:
 
-```text
-low       no dangerous pattern detected
-medium    potentially broad file operation
-high      dangerous but not always catastrophic
-critical  blocked by default
-```
+| Risk | Meaning |
+|---|---|
+| low | normal read-only or small local operation |
+| medium | modifies files, recursive deletion of generated files, broad operation |
+| high | dangerous but not always catastrophic, such as force push or curl-pipe-shell |
+| critical | blocked by default |
 
-Examples of critical patterns:
+Examples that are critical:
 
-```text
+```bash
 rm -rf /
 rm -rf /*
 sudo rm -rf ...
-mkfs...
-dd ... of=/dev/...
-fork bomb
+mkfs.ext4 /dev/sda
+dd if=image.iso of=/dev/sda
+:(){ :|:& };:
 ```
 
-Examples of high-risk patterns:
-
-```text
-git push --force
-git reset --hard
-git clean -fdx
-curl ... | bash
-wget ... | sh
-chmod -R 777 /
-```
-
----
-
-# 11. Context system
-
-CAIROS collects compact context so templates and AI can understand the current situation.
+Check manually:
 
 ```bash
-cairos context
-cairos context --json
-```
-
-Context includes:
-
-```text
-current working directory
-current shell
-operating system
-project type
-git branch
-git dirty state
-git remotes
-recent git log
-compact file tree
-```
-
-CAIROS intentionally excludes common sensitive or huge directories:
-
-```text
-.git
-.venv
-node_modules
-__pycache__
-.env files
-private key names
-build/dist folders
+cairos check rm -rf /
+cairos check git push --force
 ```
 
 ---
 
-# 12. Config system
+## 10. Local AI with Ollama
+
+### Step 1: Install and run Ollama
+
+Install Ollama using the official installer for your system. Then pull a model:
+
+```bash
+ollama pull llama3.1
+```
+
+Start the server if it is not already running:
+
+```bash
+ollama serve
+```
+
+### Step 2: Configure CAIROS
+
+```bash
+cairos config ai use-ollama llama3.1
+```
+
+Optional endpoint:
+
+```bash
+cairos config ai use-ollama llama3.1 --endpoint http://localhost:11434
+```
+
+### Step 3: Check status
+
+```bash
+cairos config ai status
+cairos doctor
+```
+
+### Step 4: Use fallback AI
+
+If a deterministic template cannot solve a task, CAIROS sends compact context and project rules to the local model.
+
+CAIROS expects the model to return structured JSON. If the model returns invalid JSON, nothing is executed.
+
+---
+
+## 11. API-based AI setup
+
+CAIROS supports OpenAI-compatible chat completions APIs.
+
+### Step 1: Export your API key
+
+Do **not** write secrets into the repository.
+
+```bash
+export OPENAI_API_KEY="your-key"
+```
+
+### Step 2: Configure provider
+
+```bash
+cairos config ai use-openai gpt-4.1-mini
+```
+
+Use a different environment variable:
+
+```bash
+export MY_API_KEY="your-key"
+cairos config ai use-openai gpt-4.1-mini --api-key-env MY_API_KEY
+```
+
+Use a custom compatible endpoint:
+
+```bash
+cairos config ai use-openai my-model --endpoint https://example.com/v1 --api-key-env MY_API_KEY
+```
+
+### Step 3: Check status
+
+```bash
+cairos config ai status
+```
+
+Status shows whether the key environment variable exists, but never prints the key.
+
+---
+
+## 12. Custom local AI command
+
+You can plug in your own local planner command:
+
+```bash
+cairos config ai use-custom python3 ~/my_cairos_planner.py
+```
+
+Contract:
+
+```text
+stdin:  JSON containing system prompt, request, context and rules
+stdout: JSON plan matching the CAIROS plan schema
+```
+
+The command should return JSON like:
+
+```json
+{
+  "summary": "Create a file.",
+  "risk": "low",
+  "steps": [
+    {
+      "kind": "write_file",
+      "path": "demo.txt",
+      "content": "hello\n",
+      "description": "Write demo file.",
+      "changes_files": true,
+      "risk": "low"
+    }
+  ],
+  "notes": [],
+  "verification": [
+    {"kind": "file_exists", "target": "demo.txt"}
+  ]
+}
+```
+
+---
+
+## 13. Disable AI
+
+```bash
+cairos config ai disable
+```
+
+Then CAIROS uses deterministic templates only.
+
+---
+
+## 14. Config file
 
 Global config path:
+
+```bash
+cairos config path
+```
+
+Usually:
 
 ```text
 ~/.config/cairos/config.json
@@ -322,290 +398,212 @@ Show config:
 cairos config show
 ```
 
-AI status:
+Set any dotted key:
 
 ```bash
-cairos config ai status
+cairos config set behavior.max_context_files 120
+cairos config set behavior.send_context_to_ai true
+cairos config set ai.timeout_seconds 90
 ```
 
-Set AI provider:
-
-```bash
-cairos config ai set-provider none
-cairos config ai set-provider ollama
-cairos config ai set-provider openai
-cairos config ai set-provider custom-command
-```
-
-Set model:
-
-```bash
-cairos config ai set-model llama3.1
-cairos config ai set-model gpt-4.1-mini
-```
-
-Set endpoint:
-
-```bash
-cairos config ai set-endpoint http://localhost:11434
-cairos config ai set-endpoint https://api.openai.com/v1
-```
-
-Set API key environment variable name:
-
-```bash
-cairos config ai set-api-key-env OPENAI_API_KEY
-```
-
-Set custom command backend:
-
-```bash
-cairos config ai set-custom-command /path/to/local-planner
-```
-
-Generic config setting:
-
-```bash
-cairos config set behavior.require_confirmation true
-```
-
----
-
-# 13. AI backend behavior
-
-If a deterministic template matches, CAIROS does not need AI.
-
-If no template matches and no AI is configured, CAIROS prints:
-
-```text
-No deterministic template matched this request.
-No AI backend is configured.
-```
-
-If AI is configured, CAIROS sends a compact JSON payload containing:
-
-```text
-system instructions
-user request
-safe context summary
-project file tree
-rules
-```
-
-The AI must return structured JSON, not prose.
-
-Supported step kinds:
-
-```text
-command
-mkdir
-write_file
-append_file
-```
-
-CAIROS validates the AI plan, runs safety checks, prints the plan, and asks for confirmation before execution.
-
----
-
-# 14. Rules system
-
-Global rules path:
-
-```text
-~/.config/cairos/rules.json
-```
-
-Project-local rules path:
-
-```text
-.cairos/rules.json
-```
-
-Project rules override global rules.
-
-Initialize local rules:
-
-```bash
-cairos rules init
-```
-
-Show merged rules:
-
-```bash
-cairos rules show
-```
-
-Set a rule:
-
-```bash
-cairos rules set cpp.header_extension .hpp
-cairos rules set cpp.namespace archmage
-cairos rules set git.main_branch main
-```
-
-Example rules:
+Main config fields:
 
 ```json
 {
-  "cpp": {
-    "header_style": "ifndef",
-    "header_extension": ".hpp",
-    "include_dir": "include",
-    "source_dir": "src",
-    "namespace": ""
+  "ai": {
+    "provider": "none|ollama|openai|custom-command",
+    "model": "model-name",
+    "endpoint": "url",
+    "api_key_env": "OPENAI_API_KEY",
+    "custom_command": "...",
+    "timeout_seconds": 60
   },
-  "git": {
-    "main_branch": "main",
-    "remote": "origin",
-    "force_push_allowed": false
+  "behavior": {
+    "require_confirmation": true,
+    "send_context_to_ai": true,
+    "max_context_files": 80,
+    "default_confirmation_phrase": "yes"
   }
 }
 ```
 
 ---
 
-# 15. Deterministic templates
+## 15. Project rules
 
-CAIROS currently supports deterministic templates for:
+Rules teach CAIROS how projects should be structured.
 
-```text
-create python project
-create cpp project
-create cpp header file
-setup venv
-git init
-create folder
-create file
-find large files
-clean pycache
-finish current branch / prepare push workflow
+Create local rules in the current project:
+
+```bash
+cairos rules init
 ```
 
-These templates are fast, offline and safer than AI-generated shell commands.
+Create global rules:
+
+```bash
+cairos rules init --global
+```
+
+Show merged active rules:
+
+```bash
+cairos rules show
+```
+
+Set rules:
+
+```bash
+cairos rules set cpp.namespace archmage
+cairos rules set cpp.include_dir include
+cairos rules set cpp.header_extension .hpp
+cairos rules set git.main_branch main
+```
+
+Project-local rules live in:
+
+```text
+.cairos/rules.json
+```
+
+Global rules live in:
+
+```text
+~/.config/cairos/rules.json
+```
+
+Project-local rules override global rules.
 
 ---
 
-# 16. Git workflow assistant
+## 16. Context sent to AI
 
-Example:
+CAIROS sends compact context, not the full repository.
+
+Included:
+
+```text
+current working directory
+shell
+OS
+project type
+small file tree
+git branch
+git dirty state
+git remotes
+recent git log
+CAIROS rules
+user request
+```
+
+Excluded by default:
+
+```text
+.env files
+private keys
+.git internals
+.venv
+node_modules
+build folders
+binary files
+large hidden caches
+```
+
+Show context:
+
+```bash
+cairos context
+cairos context --json
+```
+
+---
+
+## 17. Deterministic templates
+
+Current offline templates include:
+
+```text
+create folder / mache ordner / macke ordner
+create file / erstelle datei
+create python project with venv/git/pytest/typer/rich
+create C++ project with CMake
+create C++ header with ifndef guards
+create README
+create .gitignore
+setup venv
+git init
+git status
+git fetch
+safe branch preparation before push
+find large files
+clean __pycache__
+run tests
+```
+
+The text matcher tolerates small typos and mixed German/English wording.
+
+Examples:
+
+```bash
+cairos macke ordner docs
+cairos mache python projekt crawler mit venv git pytest
+cairos create cpp header file Player
+```
+
+---
+
+## 18. Git workflow behavior
+
+Request:
 
 ```bash
 cairos finish current branch and prepare push to origin main
 ```
 
-CAIROS intentionally does not immediately push.
+CAIROS does **not** merge or push immediately.
 
-It plans read-only safe steps:
+It creates a safe inspection workflow:
 
-```bash
+```text
 git status --short
 git branch --show-current
 git fetch origin
-git log --oneline --decorate --graph --max-count=10 --all
+git log --oneline --decorate --graph --max-count=12 --all
+git log --oneline --left-right --cherry-pick HEAD...origin/main
 ```
 
-Then the user can decide whether to merge, rebase, commit or push.
+Then you decide the next step.
 
-Future versions can add an interactive multi-stage workflow:
-
-```text
-fetch
-inspect
-ask before merge/rebase
-run tests
-ask before push
-verify remote log
-summarize
-```
-
----
-
-# 17. C++ helper behavior
-
-Example:
+Dangerous commands like these are high or critical:
 
 ```bash
-cairos create cpp header file Player
+git push --force
+git reset --hard
+git clean -fdx
 ```
-
-Creates:
-
-```text
-include/Player.hpp
-```
-
-With:
-
-```cpp
-#ifndef PLAYER_HPP
-#define PLAYER_HPP
-
-class Player {
-public:
-    Player();
-    Player(const Player& other);
-    Player(Player&& other) noexcept;
-    Player& operator=(const Player& other);
-    Player& operator=(Player&& other) noexcept;
-    ~Player();
-
-private:
-};
-
-#endif // PLAYER_HPP
-```
-
-If `cpp.namespace` is set, CAIROS wraps the class in that namespace.
 
 ---
 
-# 18. Python helper behavior
-
-Example:
-
-```bash
-cairos create python project crawler with venv git pytest
-```
-
-Creates a modern project skeleton:
-
-```text
-crawler/
-├── .gitignore
-├── README.md
-├── pyproject.toml
-├── crawler/
-│   └── __init__.py
-└── tests/
-    └── test_basic.py
-```
-
-If `venv` is requested, it also creates `.venv`.
-
-If `git` is requested, it runs `git init` inside the project.
-
----
-
-# 19. `cairos doctor`
-
-Prints useful diagnostic information:
+## 19. Doctor command
 
 ```bash
 cairos doctor
 ```
 
-Includes:
+Shows:
 
 ```text
 CAIROS version
 config path
-AI backend status
+AI status
 current context
 ```
 
+Use it when debugging installation or AI configuration.
+
 ---
 
-# 20. Development and tests
+## 20. Testing
 
 Run:
 
@@ -613,41 +611,20 @@ Run:
 make test
 ```
 
-The test runner executes JSON-defined CLI testcases and writes:
+This does:
+
+```text
+compile Python modules
+run CAIROS testcases
+write JSON results
+write HTML test report
+```
+
+Reports:
 
 ```text
 reports/results.json
 reports/testreport.html
 ```
 
-The HTML report is intentionally similar to university-style public/private testcase reports.
-
----
-
-# 21. Exit codes
-
-Typical exit codes:
-
-```text
-0    success
-1    general failure or unknown task
-2    critical command blocked
-3    verification failed
-130  aborted by user
-```
-
----
-
-# 22. Safety principle
-
-CAIROS should be:
-
-```text
-fast when deterministic
-smart when AI is configured
-safe before execution
-transparent before modifying files
-context-aware before planning
-```
-
-The AI is not the authority. CAIROS safety checks and user confirmation are the authority.
+The test suite includes typo-tolerant templates, AI config commands, safety edge cases and dangerous-command classification.

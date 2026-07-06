@@ -2,19 +2,19 @@
 
 **CAIROS — Context-Aware Intelligent Runtime Operating Shell**
 
-CAIROS is a context-aware AI-assisted command layer for your terminal. It first tries fast deterministic templates and only falls back to an optional AI backend when it cannot solve a task locally.
+CAIROS is a context-aware command assistant that lives inside your normal shell. It is **not** a replacement for zsh, bash or fish. You install it as a normal console command and use it while working inside any project directory.
 
 ```bash
-cairos create python project demo with venv git pytest
+cairos macke python projekt demo mit venv git pytest
 cairos create cpp header file Player
+cairos make folder docs
 cairos explain git reset --soft HEAD~1
-cairos check rm -rf /
-cairos config ai status
+cairos config ai use-ollama llama3.1
 ```
 
-See [`DOCUMENTATION.md`](DOCUMENTATION.md) for full usage, commands, settings and behavior.
+CAIROS first tries deterministic templates with typo-tolerant matching. Only when it cannot solve a request locally does it fall back to a configured AI backend.
 
-## Quick start
+## Quick start for development
 
 ```bash
 python3 -m venv .venv
@@ -24,6 +24,35 @@ cairos --version
 make test
 ```
 
-## Current status
+## Install as a console helper
 
-This is an early development version. It already includes deterministic planners, safety checks, rules/config files, AI backend configuration stubs, structured execution with confirmation, and a HTML test report generator.
+From a checkout:
+
+```bash
+python -m pip install .
+```
+
+For a user-level isolated install, use `pipx`:
+
+```bash
+pipx install .
+```
+
+After installation, `cairos` can be used from any folder.
+
+## Local AI setup
+
+```bash
+cairos config ai use-ollama llama3.1
+ollama pull llama3.1
+ollama serve
+```
+
+## API setup
+
+```bash
+export OPENAI_API_KEY="your-key"
+cairos config ai use-openai gpt-4.1-mini
+```
+
+See [`DOCUMENTATION.md`](DOCUMENTATION.md) for full commands, settings and behavior.

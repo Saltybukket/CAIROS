@@ -1,3 +1,9 @@
+"""Plan execution and verification for CAIROS.
+
+The executor is the only module that should modify the filesystem or run shell
+commands. It always re-runs safety checks before executing a plan.
+"""
+
 from __future__ import annotations
 
 import subprocess

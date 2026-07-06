@@ -1,3 +1,10 @@
+"""Safety scanning for raw shell commands and structured CAIROS steps.
+
+This module intentionally uses conservative regex checks. It is not a complete
+sandbox, but it blocks obvious critical commands and marks broad destructive
+operations as medium or high risk before execution.
+"""
+
 from __future__ import annotations
 
 import re

@@ -1,3 +1,9 @@
+"""Compact project and shell context collection for templates and AI prompts.
+
+The context collector avoids secrets and common large directories so CAIROS can
+provide useful big-picture information without dumping an entire repository.
+"""
+
 from __future__ import annotations
 
 import json

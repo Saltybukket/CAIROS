@@ -1,3 +1,5 @@
+"""Deterministic command explanations with context-aware safety notes."""
+
 from __future__ import annotations
 
 from .context import context_summary

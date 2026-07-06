@@ -1,3 +1,10 @@
+"""Request planner orchestration for CAIROS.
+
+``make_plan`` is the main entry used by the CLI.  It first tries deterministic
+templates.  Only if no template matches and an AI provider is configured does it
+call the AI planner.  Every resulting plan is scanned by the safety layer.
+"""
+
 from __future__ import annotations
 
 from .ai import AIPlannerError, plan_with_ai
@@ -8,6 +15,7 @@ from .templates import plan_from_template
 
 
 def make_plan(request: str, allow_ai: bool = True) -> Plan:
+    """Create a safe plan from a user request."""
     plan = plan_from_template(request)
     if plan is None:
         if allow_ai and load_config()["ai"].get("provider", "none") != "none":
@@ -29,7 +37,8 @@ def make_plan(request: str, allow_ai: bool = True) -> Plan:
                 risk="medium",
                 notes=[
                     "No AI backend is configured.",
-                    "Configure one with: cairos config ai set-provider ollama",
+                    "Local AI: cairos config ai use-ollama llama3.1",
+                    "API AI: export OPENAI_API_KEY=... && cairos config ai use-openai gpt-4.1-mini",
                     "Or add a deterministic template in cairos/templates.py.",
                 ],
                 source="none",

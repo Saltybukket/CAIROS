@@ -4,12 +4,14 @@ from __future__ import annotations
 import argparse
 import difflib
 import html
+import io
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import time
+from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 
 STYLE = """
@@ -51,6 +53,37 @@ def command_to_str(cmd: list[str]) -> str:
     return " ".join(cmd)
 
 
+def _run_cairos_in_process(argv: list[str], stdin_text: str | None, cwd: Path, env: dict[str, str]) -> tuple[int, str, str, bool]:
+    """Run ``python -m cairos.cli`` test cases without spawning many Python interpreters."""
+    project_root = str(Path.cwd())
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+    from cairos.cli import main as cairos_main
+
+    old_cwd = Path.cwd()
+    old_env = os.environ.copy()
+    old_stdin = sys.stdin
+    stdout_buf = io.StringIO()
+    stderr_buf = io.StringIO()
+    timed_out = False
+    try:
+        os.environ.clear()
+        os.environ.update(env)
+        os.chdir(cwd)
+        sys.stdin = io.StringIO(stdin_text or "")
+        with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+            try:
+                exit_code = int(cairos_main(argv))
+            except SystemExit as exc:
+                exit_code = int(exc.code or 0)
+    finally:
+        sys.stdin = old_stdin
+        os.chdir(old_cwd)
+        os.environ.clear()
+        os.environ.update(old_env)
+    return exit_code, stdout_buf.getvalue(), stderr_buf.getvalue(), timed_out
+
+
 def run_case(case: dict, index: int, timeout: int) -> dict:
     env = os.environ.copy()
     env["PYTHONPATH"] = str(Path.cwd()) + os.pathsep + env.get("PYTHONPATH", "")
@@ -60,19 +93,25 @@ def run_case(case: dict, index: int, timeout: int) -> dict:
         cwd.mkdir(parents=True, exist_ok=True)
         start = time.time()
         timed_out = False
+        cmd = case["command"]
         try:
-            proc = subprocess.run(
-                case["command"],
-                cwd=cwd,
-                env=env,
-                text=True,
-                input=case.get("stdin"),
-                capture_output=True,
-                timeout=case.get("timeout", timeout),
-            )
-            stdout = normalize_newlines(proc.stdout)
-            stderr = normalize_newlines(proc.stderr)
-            exit_code = proc.returncode
+            if len(cmd) >= 3 and cmd[0] in {"python", "python3"} and cmd[1:3] == ["-m", "cairos.cli"]:
+                exit_code, stdout, stderr, timed_out = _run_cairos_in_process(cmd[3:], case.get("stdin"), cwd, env)
+                stdout = normalize_newlines(stdout)
+                stderr = normalize_newlines(stderr)
+            else:
+                proc = subprocess.run(
+                    cmd,
+                    cwd=cwd,
+                    env=env,
+                    text=True,
+                    input=case.get("stdin"),
+                    capture_output=True,
+                    timeout=case.get("timeout", timeout),
+                )
+                stdout = normalize_newlines(proc.stdout)
+                stderr = normalize_newlines(proc.stderr)
+                exit_code = proc.returncode
         except subprocess.TimeoutExpired as exc:
             timed_out = True
             stdout = normalize_newlines(exc.stdout or "")

@@ -1,3 +1,5 @@
+"""Formatting helpers for human-readable CAIROS plans."""
+
 from __future__ import annotations
 
 from .models import Plan
