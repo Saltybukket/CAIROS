@@ -3,7 +3,7 @@
 Package/distribution name: `cairos-shell`
 Terminal command: `cairos`
 GitHub repo: `Saltybukket/cairos`
-Tag convention: `v0.5.0a3`
+Tag convention: `v0.5.0a4`
 
 CAIROS publishes to PyPI through GitHub Actions Trusted Publishing. Do not use
 long-lived PyPI API tokens.
@@ -48,7 +48,8 @@ make release-check
 ## Local Build Verification
 
 ```bash
-rm -rf dist build *.egg-info
+rm -rf dist build .release-venv
+find . -maxdepth 1 -name "*.egg-info" -type d -exec rm -rf {} +
 python -m build
 python -m twine check dist/*
 python -m tarfile -l dist/*.tar.gz | head -100
@@ -59,19 +60,30 @@ python -m zipfile -l dist/*.whl | grep 'cairos/gui/static'
 
 The wheel must include GUI templates and static assets.
 
+## PyPI Version Safety
+
+Every PyPI upload needs a new version. Do not retry publishing the same version
+after changing files. If PyPI says `File already exists`, bump the version,
+commit the bump, ensure the release tag points to that commit, and create a new
+GitHub Release.
+
 ## Release Steps
 
 After all checks pass and the PyPI Trusted Publisher exists:
 
 ```bash
 git status --short
-git tag v0.5.0a3
 git push origin main
-git push origin v0.5.0a3
+git tag v0.5.0a4
+git push origin v0.5.0a4
 ```
 
-Then create GitHub Release `v0.5.0a3`. Publishing runs automatically from the
+Then create GitHub Release `v0.5.0a4`. Publishing runs automatically from the
 `Publish Python package` workflow.
+
+If the tag already exists, verify it points to the version-bump commit before
+creating the GitHub Release. If it points at the wrong commit, delete and
+recreate the local and remote tag before creating the release.
 
 Check:
 

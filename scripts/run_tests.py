@@ -38,8 +38,12 @@ pre { padding: 1em; white-space: pre-wrap; word-break: break-word; }
 """
 
 
-def normalize_newlines(s: str) -> str:
-    return s.replace("\r\n", "\n")
+def normalize_newlines(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        value = value.decode("utf-8", errors="replace")
+    return str(value).replace("\r\n", "\n")
 
 
 def diff_percent(expected: str, actual: str) -> int:
@@ -115,8 +119,9 @@ def run_case(case: dict, index: int, timeout: int) -> dict:
                 exit_code = proc.returncode
         except subprocess.TimeoutExpired as exc:
             timed_out = True
-            stdout = normalize_newlines(exc.stdout or "")
-            stderr = normalize_newlines(exc.stderr or "")
+            stdout = normalize_newlines(exc.stdout)
+            stderr = normalize_newlines(exc.stderr)
+            stderr = (stderr + "\n" if stderr else "") + f"Timed out after {case.get('timeout', timeout)} seconds."
             exit_code = -999
 
     expected_stdout = case.get("expected_stdout")

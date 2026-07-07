@@ -2,11 +2,16 @@
 
 This file records notable CAIROS changes by release.
 
-## 0.5.0a3
+## 0.5.0a4
 
+- Prepared the next PyPI alpha after `0.5.0a3` was already published.
+- Fixed a non-interactive JSON testcase that could hang on `cairos config ai switch`.
+- Hardened the JSON test runner so subprocess timeouts with byte output report
+  clean failures instead of crashing.
+- Updated release guidance for zsh-safe cleanup and PyPI version uniqueness.
 - Polished local GUI dependency checks and now verify `python-multipart`.
 - Hardened GUI localhost/origin validation and added local security headers.
-- Cleaned documentation and updated release/version references for 0.5.0a3.
+- Cleaned documentation and updated release/version references for 0.5.0a4.
 - Added tests for GUI dependency checks, POST token/origin behavior, security
   headers, docs links, and version consistency.
 - Added PyPI Trusted Publishing workflow, CI workflow, package manifest, release
@@ -15,6 +20,11 @@ This file records notable CAIROS changes by release.
   install, while keeping normal CLI and GUI runtime installs lightweight.
 - Improved AI key setup UX with clearer environment-variable terminology,
   GUI profile editing, explicit key reveal/session setup, and CLI key helpers.
+
+## 0.5.0a3
+
+- Published the previous PyPI alpha. PyPI will reject re-uploads of the same
+  version even if local files change.
 
 ## 0.5.0a2
 

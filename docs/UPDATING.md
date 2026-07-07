@@ -43,14 +43,17 @@ pipx install git+https://github.com/Saltybukket/cairos.git
 This removes the pipx package environment only. It does not remove CAIROS user
 config, history, AI profiles, environment variable names, or project rules.
 
-## Future PyPI Install
+## PyPI Install
 
-There is no PyPI release yet. After the first PyPI release, use:
+Use:
 
 ```bash
 pipx install cairos-shell
 pipx upgrade cairos-shell
 ```
+
+PyPI files are immutable. If a release upload fails with `File already exists`,
+do not retry the same version; bump the version and publish a new release.
 
 ## GitHub Actions Publishing
 

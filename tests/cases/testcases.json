@@ -7,7 +7,7 @@
       "cairos.cli",
       "--version"
     ],
-    "expected_stdout": "0.5.0a3\n",
+    "expected_stdout": "0.5.0a4\n",
     "expected_stderr": "",
     "expected_exit": 0
   },
@@ -1356,9 +1356,9 @@
     "expected_exit": 0
   },
   {
-    "name": "AI switch noninteractive prints fallback",
-    "command": ["python3", "-c", "from cairos.cli import main; main(['config','ai','use-gemini','gemini-2.5-flash','--profile','gemini-flash']); main(['config','ai','switch'])"],
-    "expected_contains": ["Choose AI profile:", "[1]", "Non-interactive shell. Use:", "cairos config ai use-profile <name>"],
+    "name": "AI profile switch noninteractive",
+    "command": ["python3", "-c", "from cairos.cli import main; main(['config','ai','use-gemini','gemini-2.5-flash','--profile','gemini-flash']); main(['config','ai','use-openai','gpt-4.1-mini','--profile','openai-mini']); main(['config','ai','use-profile','gemini-flash'])"],
+    "expected_contains": ["Configured Gemini AI", "Configured OpenAI-compatible AI", "Activated AI profile: gemini-flash"],
     "expected_stderr": "",
     "expected_exit": 0
   },
