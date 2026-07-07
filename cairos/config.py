@@ -11,10 +11,15 @@ import json
 import os
 import platform
 import re
+import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+SCHEMA_VERSION = 1
+
 DEFAULT_CONFIG: dict[str, Any] = {
+    "schema_version": SCHEMA_VERSION,
     "ai": {
         "provider": "none",
         "model": "",
@@ -32,6 +37,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "default_confirmation_phrase": "yes",
     },
 }
+
+
+class ConfigError(RuntimeError):
+    """Raised when the CAIROS config file cannot be loaded safely."""
 
 
 def config_dir(system: str | None = None) -> Path:
@@ -157,23 +166,94 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     return result
 
 
+def _timestamp() -> str:
+    return datetime.now().strftime("%Y%m%d-%H%M%S")
+
+
+def backup_config() -> Path | None:
+    """Copy the current config file to a timestamped backup, if it exists."""
+    path = config_path()
+    if not path.exists():
+        return None
+    backup = path.with_name(f"config.backup-{_timestamp()}.json")
+    counter = 1
+    while backup.exists():
+        backup = path.with_name(f"config.backup-{_timestamp()}-{counter}.json")
+        counter += 1
+    backup.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(path, backup)
+    return backup
+
+
+def _atomic_write_json(path: Path, config: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.tmp")
+    tmp.write_text(json.dumps(config, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def migrate_config(config: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Return config merged with defaults and whether it changed."""
+    if not isinstance(config, dict):
+        config = {}
+    merged = _deep_merge(DEFAULT_CONFIG, config)
+    raw_version = config.get("schema_version", config.get("config_version", 0))
+    try:
+        version = int(raw_version)
+    except (TypeError, ValueError):
+        version = 0
+    merged["schema_version"] = SCHEMA_VERSION
+    changed = merged != config or version != SCHEMA_VERSION
+    return merged, changed
+
+
+def migrate_config_file() -> tuple[Path, Path | None, bool]:
+    """Apply config migrations now and return path, backup path and changed flag."""
+    path = config_path()
+    if not path.exists():
+        save_config(_clone_default())
+        return path, None, True
+    try:
+        user_config = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ConfigError(
+            f"Could not read CAIROS config because it is not valid JSON: {path}\n"
+            f"JSON error: {exc}\n"
+            "The file was not overwritten. Restore a config.backup-*.json file or fix the JSON and retry."
+        ) from exc
+    migrated, changed = migrate_config(user_config if isinstance(user_config, dict) else {})
+    backup = None
+    if changed:
+        backup = backup_config()
+        _atomic_write_json(path, migrated)
+    return path, backup, changed
+
+
 def load_config() -> dict[str, Any]:
-    """Load config and merge it with defaults."""
+    """Load config, migrate it if needed, and merge it with defaults."""
     path = config_path()
     if not path.exists():
         return _clone_default()
     try:
         user_config = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return _clone_default()
-    return _deep_merge(DEFAULT_CONFIG, user_config if isinstance(user_config, dict) else {})
+    except json.JSONDecodeError as exc:
+        raise ConfigError(
+            f"Could not read CAIROS config because it is not valid JSON: {path}\n"
+            f"JSON error: {exc}\n"
+            "The file was not overwritten. Restore a config.backup-*.json file or fix the JSON and retry."
+        ) from exc
+    migrated, changed = migrate_config(user_config if isinstance(user_config, dict) else {})
+    if changed:
+        backup_config()
+        _atomic_write_json(path, migrated)
+    return migrated
 
 
 def save_config(config: dict[str, Any]) -> Path:
-    """Write the global config file."""
+    """Write the global config file atomically, preserving default keys."""
     path = config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(config, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    merged, _ = migrate_config(config)
+    _atomic_write_json(path, merged)
     return path
 
 

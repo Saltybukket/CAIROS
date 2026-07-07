@@ -70,6 +70,78 @@ def _missing_key_message(key_env: str) -> str:
     )
 
 
+def _error_body_message(body: str) -> str:
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError:
+        return body.strip()[:500]
+    if isinstance(data, dict):
+        error = data.get("error")
+        if isinstance(error, dict):
+            return str(error.get("message") or error.get("code") or error)[:500]
+        if isinstance(error, str):
+            return error[:500]
+        if "message" in data:
+            return str(data["message"])[:500]
+    return str(data)[:500]
+
+
+def _provider_context(config: dict[str, Any]) -> list[str]:
+    ai = config["ai"]
+    return [
+        f"provider: {ai.get('provider', 'none')}",
+        f"model: {ai.get('model') or '<not set>'}",
+        f"endpoint: {ai.get('endpoint') or '<not set>'}",
+        f"api_key_env: {ai.get('api_key_env') or 'none'}",
+        f"active_profile: {config.get('active_ai_profile') or '<none>'}",
+    ]
+
+
+def _format_http_error(prefix: str, exc: urllib.error.HTTPError, config: dict[str, Any], body: str = "") -> str:
+    ai = config["ai"]
+    endpoint = str(ai.get("endpoint") or "")
+    message = _error_body_message(body)
+    lines = [f"{prefix} failed with HTTP {exc.code}."]
+    if exc.code == 401:
+        lines.append("Key missing, invalid, expired, restricted, or not allowed for this model/endpoint.")
+        lines.append("Check that the environment variable is visible in this shell, regenerate the key if needed, and verify account/org/project permissions.")
+    elif exc.code == 402:
+        lines.append("Payment required / insufficient credits.")
+        if "openrouter.ai" in endpoint:
+            lines.append("This usually means your OpenRouter account has no credits for this paid model.")
+            lines.append("Try OpenRouter free or a model ending in :free, or add credits in OpenRouter.")
+            lines.append("Suggested commands:")
+            lines.append("  cairos config ai use-openrouter-free")
+            lines.append("  cairos config ai test")
+    elif exc.code == 403:
+        lines.append("Forbidden or restricted. The key may not be allowed for this model, endpoint, account, org, or project.")
+    elif exc.code == 404:
+        lines.append("Model or endpoint not found. Check the model slug and base endpoint.")
+        if ai.get("provider") == "gemini":
+            lines.append("Try: cairos config ai list-models")
+        elif "openrouter.ai" in endpoint:
+            lines.append("Check OpenRouter's current model list or try: cairos config ai use-openrouter-free")
+    elif exc.code == 429:
+        lines.append("Rate limit, quota, or usage limit reached.")
+        lines.append("Possible causes: too many requests, free-tier rate limit, quota exhausted, billing not enabled, credits exhausted, or provider throttling.")
+        lines.append("Try again later, use a cheaper/free model, check provider usage/billing, or switch profiles.")
+    else:
+        lines.append("Provider returned an HTTP error. Check endpoint, model, key permissions and provider status.")
+    if message:
+        lines.append(f"provider message: {message}")
+    lines.extend(_provider_context(config))
+    return "\n".join(lines)
+
+
+def _format_network_error(prefix: str, exc: BaseException, config: dict[str, Any]) -> str:
+    lines = [
+        f"{prefix} network error: {exc}",
+        "Check connection, proxy, DNS, TLS certificates, endpoint URL, and provider status.",
+    ]
+    lines.extend(_provider_context(config))
+    return "\n".join(lines)
+
+
 def _extract_json_object(raw: str) -> str:
     """Extract a JSON object even if a model accidentally adds tiny prose."""
     text = raw.strip()
@@ -187,7 +259,12 @@ def _openai_compatible_plan(request: str, config: dict[str, Any]) -> Plan:
     try:
         with urllib.request.urlopen(req, timeout=timeout) as response:
             data = json.loads(response.read().decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise AIPlannerError(_format_http_error("OpenAI-compatible backend", exc, config, body)) from exc
+    except (urllib.error.URLError, TimeoutError) as exc:
+        raise AIPlannerError(_format_network_error("OpenAI-compatible backend", exc, config)) from exc
+    except json.JSONDecodeError as exc:
         raise AIPlannerError(f"OpenAI-compatible backend failed: {exc}") from exc
     content = data["choices"][0]["message"]["content"]
     return _parse_plan(content)
@@ -216,19 +293,11 @@ def _gemini_plan(request: str, config: dict[str, Any]) -> Plan:
         with urllib.request.urlopen(req, timeout=timeout) as response:
             data = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            raise AIPlannerError(
-                "The configured Gemini model was not found or is unavailable for this key.\n"
-                "Try:\n"
-                "  cairos config ai list-models\n"
-                "  cairos config ai use-gemini gemini-2.5-flash"
-            ) from exc
-        if exc.code in {401, 403}:
-            raise AIPlannerError("Gemini authentication failed. Check that GEMINI_API_KEY is set and valid.") from exc
-        if exc.code == 429:
-            raise AIPlannerError("Gemini rate limit or quota reached. Try again later.") from exc
-        raise AIPlannerError(f"Gemini backend failed with HTTP {exc.code}") from exc
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise AIPlannerError(_format_http_error("Gemini backend", exc, config, body)) from exc
+    except (urllib.error.URLError, TimeoutError) as exc:
+        raise AIPlannerError(_format_network_error("Gemini backend", exc, config)) from exc
+    except json.JSONDecodeError as exc:
         raise AIPlannerError(f"Gemini backend failed: {exc}") from exc
     text = data["candidates"][0]["content"]["parts"][0]["text"]
     return _parse_plan(text)

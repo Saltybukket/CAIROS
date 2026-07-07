@@ -28,6 +28,14 @@ cairos context
 cairos check if repo is ready to commit
 ```
 
+OpenRouter free quickstart:
+
+```bash
+export OPENROUTER_API_KEY="your-key"
+cairos config ai use-openrouter-free
+cairos config ai test
+```
+
 Optional Gemini setup:
 
 ```bash
@@ -96,6 +104,21 @@ cairos run create folder docs
 Direct `cairos <task>` prints a plan. Use `cairos run <task>` to execute after
 confirmation.
 
+CAIROS cannot permanently change the parent shell directory from a child
+process. Use `cairos find-dir <name>` or a shell wrapper from
+[Shell Navigation](docs/SHELL_NAVIGATION.md) for `cd` workflows.
+
+## Update
+
+```bash
+cairos update
+cairos backup-config
+```
+
+GitHub installs are updated with the command printed by `cairos update`.
+Config, history and AI profiles live outside the package install and are
+preserved across package upgrades.
+
 ## AI Profiles
 
 Save multiple providers/models and switch quickly:
@@ -148,6 +171,11 @@ Optional project-local rules:
 - [Quickstart](docs/QUICKSTART.md)
 - [User Guide](docs/USER_GUIDE.md)
 - [AI Setup](docs/AI_SETUP.md)
+- [AI Providers](docs/AI_PROVIDERS.md)
+- [Windows Guide](docs/WINDOWS.md)
+- [Shell Navigation](docs/SHELL_NAVIGATION.md)
+- [AI Troubleshooting](docs/TROUBLESHOOTING_AI.md)
+- [Updating](docs/UPDATING.md)
 - [Safety](docs/SAFETY.md)
 - [Release Guide](docs/RELEASE.md)
 - [Developer Guide](docs/DEVELOPER.md)

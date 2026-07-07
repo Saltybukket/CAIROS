@@ -22,6 +22,14 @@ cairos context
 cairos check if repo is ready to commit
 ```
 
+OpenRouter free setup:
+
+```bash
+export OPENROUTER_API_KEY="your-key"
+cairos config ai use-openrouter-free
+cairos config ai test
+```
+
 Optional Gemini setup:
 
 ```bash

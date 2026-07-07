@@ -2,6 +2,9 @@
 
 This file lists common CAIROS setup and usage problems with fixes.
 
+For AI provider HTTP errors, see `docs/TROUBLESHOOTING_AI.md`.
+For updates and config backups, see `docs/UPDATING.md`.
+
 ## `cairos` command not found
 
 Recommended install:

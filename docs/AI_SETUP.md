@@ -5,6 +5,20 @@ This file explains optional AI backends for CAIROS.
 CAIROS works without AI. Configure a backend only when deterministic templates
 do not cover your workflow.
 
+See also: `docs/AI_PROVIDERS.md`, `docs/TROUBLESHOOTING_AI.md` and
+`docs/WINDOWS.md`.
+
+## OpenRouter Free
+
+```bash
+export OPENROUTER_API_KEY="your-key"
+cairos config ai use-openrouter-free
+cairos config ai test
+```
+
+OpenRouter model availability and free limits can change. `openrouter/free` is
+a convenient router for free models.
+
 ## Disable AI
 
 ```bash

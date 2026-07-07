@@ -28,15 +28,27 @@ twine check dist/*
 ## GitHub Release
 
 ```bash
-git tag v0.4.0a1
-git push origin v0.4.0a1
+git tag v0.5.0a1
+git push origin v0.5.0a1
 ```
 
 ## Install From GitHub Tag
 
 ```bash
-pipx install git+https://github.com/Saltybukket/cairos.git@v0.4.0a1
+pipx install git+https://github.com/Saltybukket/cairos.git@v0.5.0a1
 ```
+
+## Update Existing GitHub Install
+
+```bash
+cairos update
+pipx upgrade cairos-shell
+cairos doctor
+cairos config ai profiles
+```
+
+User config, history and project rules live outside the package environment and
+are preserved across package upgrades.
 
 ## Future PyPI Release
 

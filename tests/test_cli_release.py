@@ -1,0 +1,53 @@
+import contextlib
+import io
+import os
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from cairos.cli import main
+
+
+class CLIReleaseTests(unittest.TestCase):
+    def run_cli(self, args, home=None):
+        out = io.StringIO()
+        err = io.StringIO()
+        env = {"HOME": home or tempfile.mkdtemp()}
+        with patch.dict(os.environ, env, clear=False):
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = main(args)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_openrouter_shortcut_and_examples(self):
+        home = tempfile.mkdtemp()
+        code, out, _ = self.run_cli(["config", "ai", "use-openrouter-free"], home=home)
+        self.assertEqual(code, 0)
+        self.assertIn("openrouter/free", out)
+        self.assertIn("OPENROUTER_API_KEY", out)
+        code, out, _ = self.run_cli(["ai", "examples"], home=home)
+        self.assertEqual(code, 0)
+        self.assertIn("OpenRouter free", out)
+        self.assertIn("Groq", out)
+
+    def test_update_and_backup_config(self):
+        home = tempfile.mkdtemp()
+        self.run_cli(["config", "ai", "use-openrouter-free"], home=home)
+        code, out, _ = self.run_cli(["update"], home=home)
+        self.assertEqual(code, 0)
+        self.assertIn("Your config will be preserved", out)
+        self.assertIn("Raw API keys are not stored", out)
+        code, out, _ = self.run_cli(["backup-config"], home=home)
+        self.assertEqual(code, 0)
+        self.assertIn("Config backup created", out)
+
+    def test_ai_doctor_help(self):
+        code, out, _ = self.run_cli(["config", "ai", "doctor"])
+        self.assertEqual(code, 0)
+        self.assertIn("HTTP guidance", out)
+        code, out, _ = self.run_cli(["config", "ai", "--help"])
+        self.assertEqual(code, 0)
+        self.assertIn("use-openrouter-free", out)
+
+
+if __name__ == "__main__":
+    unittest.main()

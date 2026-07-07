@@ -7,7 +7,7 @@
       "cairos.cli",
       "--version"
     ],
-    "expected_stdout": "0.4.0a1\n",
+    "expected_stdout": "0.5.0a1\n",
     "expected_stderr": "",
     "expected_exit": 0
   },
@@ -1282,7 +1282,7 @@
   {
     "name": "Directory change request explains shell limitation",
     "command": ["python3", "-m", "cairos.cli", "plan", "go", "into", "directory", "TU-Graz", "using", "the", "find", "command"],
-    "expected_contains": ["Source: template:cd-guidance", "CAIROS cannot permanently change the parent shell directory", "find . -maxdepth 4"],
+    "expected_contains": ["Source: template:cd-guidance", "A child process cannot permanently change the parent shell's working directory", "find . -maxdepth 4"],
     "expected_not_contains": ["cd TU-Graz"],
     "expected_stderr": "",
     "expected_exit": 0
@@ -1290,7 +1290,7 @@
   {
     "name": "Cd into name explains shell limitation",
     "command": ["python3", "-m", "cairos.cli", "plan", "cd", "into", "TU-Graz"],
-    "expected_contains": ["Source: template:cd-guidance", "CAIROS cannot permanently change the parent shell directory", "TU-Graz"],
+    "expected_contains": ["Source: template:cd-guidance", "A child process cannot permanently change the parent shell's working directory", "TU-Graz"],
     "expected_not_contains": ["cd TU-Graz"],
     "expected_stderr": "",
     "expected_exit": 0

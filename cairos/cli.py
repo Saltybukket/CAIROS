@@ -22,6 +22,8 @@ from .config import (
     activate_ai_profile,
     active_ai_profile_name,
     ai_profiles,
+    backup_config,
+    ConfigError,
     config_dir,
     config_json,
     config_path,
@@ -33,6 +35,7 @@ from .config import (
     disable_ai,
     env_var_setup_hint,
     load_config,
+    migrate_config_file,
     rename_ai_profile,
     save_current_ai_profile,
     set_config_value,
@@ -48,9 +51,10 @@ from .planner import make_plan
 from .preview import diff_plan, preview_plan
 from .rules import init_global_rules, init_local_rules, local_rules_path, rules_json, set_rule
 from .safety import check_command
+from .shell_utils import clean_target_name, cd_command_for_path, path_depth
 from .text import looks_like_shell_command
 
-RESERVED = {"plan", "expand", "run", "check", "explain", "context", "config", "rules", "doctor", "history", "preview", "diff", "help"}
+RESERVED = {"plan", "expand", "run", "check", "explain", "context", "config", "rules", "doctor", "history", "preview", "diff", "help", "update", "upgrade", "backup-config"}
 
 USAGE = """CAIROS — Context-Aware Intelligent Runtime Operating Shell
 
@@ -66,11 +70,17 @@ Usage:
   cairos check <shell command | natural language task>
   cairos context [--json]
   cairos find-dir <name>
+  cairos update [--check|--print-command]
+  cairos backup-config
   cairos config show
   cairos config path
   cairos config ai status
   cairos config ai test
   cairos config ai list-models
+  cairos config ai examples
+  cairos config ai doctor
+  cairos config ai use-openrouter-free
+  cairos config ai use-openrouter [model] [--profile name]
   cairos config ai use-ollama [model] [--endpoint URL]
   cairos config ai use-openai [model] [--api-key-env ENV] [--endpoint URL]
   cairos config ai use-gemini [model] [--api-key-env ENV]
@@ -247,6 +257,7 @@ def _ai_help_text() -> str:
 Status:
   cairos config ai status
   cairos config ai test
+  cairos config ai doctor
 
 Profiles:
   cairos config ai profiles
@@ -257,7 +268,11 @@ Profiles:
 
 Providers:
   cairos config ai list-providers
+  cairos config ai examples
+  cairos config ai use-openrouter-free
+  cairos config ai use-openrouter openrouter/free --profile openrouter-free
   cairos config ai use-gemini gemini-2.5-flash --profile gemini-flash
+  cairos config ai use-openai llama-3.1-8b-instant --endpoint https://api.groq.com/openai/v1 --api-key-env GROQ_API_KEY --profile groq-llama
   cairos config ai use-openai gpt-4.1-mini --profile openai-mini
   cairos config ai use-ollama llama3.1 --profile ollama-local
   cairos config ai use-custom <command> --profile custom-local
@@ -281,12 +296,42 @@ def _print_provider_list() -> None:
     print("- ollama")
     print("- gemini")
     print("- openai")
+    print("- openrouter (OpenAI-compatible)")
+    print("- groq (OpenAI-compatible)")
     print("- custom-command")
     print("")
     print("Setup examples:")
+    print("  cairos config ai use-openrouter-free")
     print("  cairos config ai use-gemini gemini-2.5-flash --profile gemini-flash")
+    print("  cairos config ai use-openai llama-3.1-8b-instant --endpoint https://api.groq.com/openai/v1 --api-key-env GROQ_API_KEY --profile groq-llama")
     print("  cairos config ai use-openai gpt-4.1-mini --profile openai-mini")
     print("  cairos config ai use-ollama llama3.1 --profile ollama-local")
+
+
+def _ai_examples_text() -> str:
+    return """CAIROS AI examples
+
+OpenRouter free:
+  cairos config ai use-openrouter-free
+  cairos config ai test
+
+Gemini Flash:
+  cairos config ai use-gemini gemini-2.5-flash --profile gemini-flash
+  cairos config ai test
+
+Groq:
+  cairos config ai use-openai llama-3.1-8b-instant --endpoint https://api.groq.com/openai/v1 --api-key-env GROQ_API_KEY --profile groq-llama
+  cairos config ai test
+
+OpenAI paid:
+  cairos config ai use-openai gpt-4.1-mini --api-key-env OPENAI_API_KEY --profile openai-mini
+  cairos config ai test
+
+Ollama local:
+  cairos config ai use-ollama llama3.1 --profile ollama-local
+  cairos config ai test
+
+Free tiers, model IDs and rate limits can change. Check the provider's current model list when a model is unavailable."""
 
 
 def _profile_key_status(profile: dict[str, object]) -> str:
@@ -322,6 +367,44 @@ def _profiles_text() -> str:
     return "\n".join(lines).rstrip()
 
 
+def _ai_doctor_text() -> str:
+    config = load_config()
+    ai = config["ai"]
+    env_name = str(ai.get("api_key_env") or "")
+    lines = [
+        "CAIROS AI Doctor",
+        f"active profile: {config.get('active_ai_profile') or '<none>'}",
+        f"provider: {ai.get('provider', 'none')}",
+        f"model: {ai.get('model') or '<not set>'}",
+        f"endpoint: {ai.get('endpoint') or '<not set>'}",
+        f"api_key_env: {env_name or 'none'}",
+    ]
+    if env_name:
+        lines.append(f"env var visible: {'yes' if os.environ.get(env_name) else 'no'}")
+    lines.extend(
+        [
+            "Useful checks:",
+            "  cairos config ai status",
+            "  cairos config ai test",
+            "  cairos config ai profiles",
+            "HTTP guidance:",
+            "  401/403: key missing, invalid, expired, restricted, or not allowed for this model/endpoint.",
+            "  402: payment required or insufficient credits. For OpenRouter paid models, try openrouter/free.",
+            "  404: model or endpoint not found. Check the model slug and base endpoint.",
+            "  429: rate limit, quota, billing, credits, or provider throttling.",
+        ]
+    )
+    if "openrouter.ai" in str(ai.get("endpoint", "")):
+        lines.extend(
+            [
+                "OpenRouter suggestion:",
+                "  cairos config ai use-openrouter-free",
+                "  cairos config ai test",
+            ]
+        )
+    return "\n".join(lines)
+
+
 def _print_unknown_ai_command(command: str) -> int:
     print(f"Unknown AI config command: {command}", file=sys.stderr)
     print("", file=sys.stderr)
@@ -330,6 +413,7 @@ def _print_unknown_ai_command(command: str) -> int:
     print("  cairos config ai status", file=sys.stderr)
     print("  cairos config ai profiles", file=sys.stderr)
     print("  cairos config ai list-providers", file=sys.stderr)
+    print("  cairos config ai examples", file=sys.stderr)
     if "cairos" in command:
         print("", file=sys.stderr)
         print("It looks like two commands may have been pasted together.", file=sys.stderr)
@@ -355,53 +439,110 @@ def _iter_find_dir_roots() -> list[Path]:
     return unique
 
 
-def _find_dir(name: str, max_depth: int = 3, max_dirs_scanned: int = 300) -> Path | None:
-    target = name.lower()
+def _find_dirs(name: str, max_depth: int = 4, start: Path | None = None, exact: bool = False, ignore_case: bool = True, max_dirs_scanned: int = 600) -> list[Path]:
+    """Return bounded directory matches for wrapper-friendly navigation."""
+    cleaned = clean_target_name(name)
+    target = cleaned.lower() if ignore_case else cleaned
     scanned = 0
     ignored = {"appdata", ".git", ".venv", "venv", "env", "node_modules", ".local", "library", "onedrive"}
+    matches: list[Path] = []
 
-    def walk(root: Path, depth: int) -> Path | None:
+    def is_match(entry: Path) -> bool:
+        candidate = entry.name.lower() if ignore_case else entry.name
+        return candidate == target if exact else target in candidate
+
+    def walk(root: Path, depth: int, base: Path) -> None:
         nonlocal scanned
         if scanned >= max_dirs_scanned or depth > max_depth:
-            return None
+            return
         try:
             entries = sorted(root.iterdir(), key=lambda p: p.name.lower())
         except (PermissionError, OSError):
-            return None
+            return
         scanned += 1
         for entry in entries:
             try:
                 if not entry.is_dir() or entry.is_symlink() or entry.name.lower() in ignored:
                     continue
-                if entry.name.lower() == target:
-                    return entry
-                found = walk(entry, depth + 1)
-                if found:
-                    return found
+                if path_depth(entry, base) > max_depth:
+                    continue
+                if is_match(entry):
+                    matches.append(entry.resolve())
+                walk(entry, depth + 1, base)
             except (PermissionError, OSError):
                 continue
-        return None
 
-    for root in _iter_find_dir_roots():
+    roots = [start] if start else _iter_find_dir_roots()
+    for root in roots:
         if not root.exists() or not root.is_dir():
             continue
-        if root.name.lower() == target:
-            return root
-        found = walk(root, 0)
-        if found:
-            return found
-    return None
+        root = root.resolve()
+        if is_match(root):
+            matches.append(root)
+        walk(root, 0, root)
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for match in matches:
+        key = str(match)
+        if key not in seen:
+            seen.add(key)
+            unique.append(match)
+    return unique
+
+
+def _find_dir(name: str, max_depth: int = 4) -> Path | None:
+    matches = _find_dirs(name, max_depth=max_depth, exact=True)
+    return matches[0] if matches else None
 
 
 def _handle_find_dir(args: list[str]) -> int:
     if not args:
         print("Missing directory name.", file=sys.stderr)
         return 1
-    found = _find_dir(_join(args))
-    if not found:
+    max_depth = 4
+    start = Path.cwd()
+    exact = False
+    ignore_case = True
+    name_parts: list[str] = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == "--max-depth" and index + 1 < len(args):
+            try:
+                max_depth = int(args[index + 1])
+            except ValueError:
+                print("Invalid --max-depth value.", file=sys.stderr)
+                return 1
+            index += 2
+            continue
+        if arg == "--from" and index + 1 < len(args):
+            start = Path(args[index + 1])
+            index += 2
+            continue
+        if arg == "--exact":
+            exact = True
+            index += 1
+            continue
+        if arg == "--ignore-case":
+            ignore_case = True
+            index += 1
+            continue
+        name_parts.append(arg)
+        index += 1
+    name = _join(name_parts)
+    if not name:
+        print("Missing directory name.", file=sys.stderr)
+        return 1
+    matches = _find_dirs(name, max_depth=max_depth, start=start, exact=exact, ignore_case=ignore_case)
+    if not matches:
         print("Directory not found within bounded search locations.", file=sys.stderr)
         return 1
-    print(found)
+    if len(matches) == 1:
+        print(matches[0])
+        return 0
+    print("Multiple directories matched:", file=sys.stderr)
+    for match in matches:
+        print(match)
     return 0
 
 
@@ -419,8 +560,16 @@ def _handle_config_ai(args: list[str]) -> int:
         print(ai_self_test())
         return 0
 
+    if args[0] == "doctor":
+        print(_ai_doctor_text())
+        return 0
+
     if args[0] == "list-providers":
         _print_provider_list()
+        return 0
+
+    if args[0] == "examples":
+        print(_ai_examples_text())
         return 0
 
     if args[0] in {"profiles", "list-profiles", "list"}:
@@ -507,6 +656,32 @@ def _handle_config_ai(args: list[str]) -> int:
 
     if args[0] == "list-models":
         print(list_models())
+        return 0
+
+    if args[0] == "use-openrouter-free":
+        path = configure_openai(
+            model="openrouter/free",
+            api_key_env="OPENROUTER_API_KEY",
+            endpoint="https://openrouter.ai/api/v1",
+            profile="openrouter-free",
+        )
+        print(f"Configured OpenRouter free AI in {path}")
+        print("provider=openai model=openrouter/free endpoint=https://openrouter.ai/api/v1 api_key_env=OPENROUTER_API_KEY")
+        print(f"active_profile={active_ai_profile_name() or '<none>'}")
+        _print_env_next("OPENROUTER_API_KEY")
+        return 0
+
+    if args[0] == "use-openrouter":
+        model_args = _without_flags(args[1:], {"--api-key-env", "--endpoint", "--profile"})
+        model = model_args[0] if model_args else "openrouter/free"
+        api_key_env = _extract_flag_value(args, "--api-key-env", "OPENROUTER_API_KEY")
+        endpoint = _extract_flag_value(args, "--endpoint", "https://openrouter.ai/api/v1")
+        profile = _extract_flag_value(args, "--profile", "openrouter-free" if model == "openrouter/free" else "")
+        path = configure_openai(model=model, api_key_env=api_key_env, endpoint=endpoint, profile=profile or None)
+        print(f"Configured OpenRouter AI in {path}")
+        print(f"provider=openai model={model} endpoint={endpoint} api_key_env={api_key_env}")
+        print(f"active_profile={active_ai_profile_name() or '<none>'}")
+        _print_env_next(api_key_env)
         return 0
 
     if args[0] in {"use-ollama", "set-local", "local", "ollama"}:
@@ -613,6 +788,10 @@ def _handle_config(args: list[str]) -> int:
     if args[0] == "path":
         print(config_path())
         return 0
+    if args[0] == "backup":
+        return _handle_backup_config()
+    if args[0] == "migrate":
+        return _handle_config_migrate()
     if args[0] == "ai":
         return _handle_config_ai(args[1:])
     if args[0] == "set" and len(args) >= 3:
@@ -772,6 +951,70 @@ def _handle_install_info() -> int:
     return 0
 
 
+def _recommended_update_command() -> str:
+    mode = _install_mode()
+    if mode == "pipx":
+        return "pipx upgrade cairos-shell"
+    if _running_from_source():
+        return "git pull && python -m pip install -e ."
+    return "python -m pip install --user --upgrade cairos-shell"
+
+
+def _handle_update(args: list[str]) -> int:
+    command = _recommended_update_command()
+    print("CAIROS Update")
+    print("")
+    print(f"Current version: {__version__}")
+    print(f"Install mode: {_install_mode()}")
+    print("Source: GitHub-first install or local checkout")
+    print("Recommended update command:")
+    print(f"  {command}")
+    print("")
+    print("Your config will be preserved:")
+    print(f"  {config_path()}")
+    print("Your history will be preserved:")
+    print(f"  {history_path()}")
+    print("Your project rules will be preserved:")
+    print("  .cairos/rules.json")
+    print("")
+    print("Profiles will be preserved. Raw API keys are not stored in CAIROS config.")
+    if "--print-command" in args:
+        print("")
+        print(command)
+    if "--run" in args:
+        print("")
+        print("Automatic update execution is intentionally not implemented yet.")
+        print("Run the recommended command yourself after reviewing it.")
+    if "--check" in args:
+        print("")
+        print("Network version check is not required for this install path.")
+        print("Run the recommended command, then `cairos doctor`.")
+    return 0
+
+
+def _handle_backup_config() -> int:
+    backup = backup_config()
+    if backup is None:
+        print(f"No config file exists yet: {config_path()}")
+        print("Run `cairos setup` or configure AI to create one.")
+        return 0
+    print(f"Config backup created: {backup}")
+    return 0
+
+
+def _handle_config_migrate() -> int:
+    path, backup, changed = migrate_config_file()
+    print("CAIROS Config Migration")
+    print(f"config: {path}")
+    print(f"schema_version: {load_config().get('schema_version')}")
+    if changed:
+        print(f"backup: {backup or '<none>'}")
+        print("status: migrated")
+    else:
+        print("status: already current")
+    return 0
+
+
 def _handle_init(args: list[str]) -> int:
     if "--global" in args:
         from .config import save_config, load_config
@@ -809,6 +1052,8 @@ def _handle_setup() -> int:
     print("- pipx install cairos-shell")
     print("Useful next commands:")
     print("- cairos init")
+    print("- cairos update")
+    print("- cairos config ai use-openrouter-free")
     print("- cairos config ai use-ollama llama3.1")
     print("- cairos config ai use-gemini gemini-2.5-flash")
     print("- cairos config ai use-openai gpt-4.1-mini")
@@ -840,6 +1085,10 @@ def _handle_quicksetup() -> int:
     print("4. AI setup options")
     print("   no AI:")
     print("     cairos config ai disable")
+    print("   OpenRouter free:")
+    for line in env_var_setup_hint("OPENROUTER_API_KEY").splitlines():
+        print(f"     {line}")
+    print("     cairos config ai use-openrouter-free")
     print("   Gemini:")
     for line in env_var_setup_hint("GEMINI_API_KEY").splitlines():
         print(f"     {line}")
@@ -869,7 +1118,7 @@ def _handle_quicksetup() -> int:
 COMPLETION_COMMANDS = [
     "plan", "run", "expand", "preview", "diff", "explain", "check", "context",
     "config", "rules", "doctor", "install-info", "quicksetup", "setup",
-    "templates", "history", "shell", "completion", "find-dir", "init",
+    "templates", "history", "shell", "completion", "find-dir", "init", "update", "upgrade", "backup-config",
 ]
 
 
@@ -936,8 +1185,10 @@ def _templates_text(topic: str = "all") -> str:
         ],
         "ai": [
             "AI:",
+            "  cairos config ai use-openrouter-free",
             "  cairos config ai use-ollama llama3.1",
             "  cairos config ai use-gemini gemini-2.5-flash",
+            "  cairos config ai examples",
             "  cairos config ai test",
         ],
         "system": [
@@ -1056,13 +1307,16 @@ def _handle_free_task(args: list[str]) -> int:
     plan = make_plan(request)
     print(format_plan(plan))
     if not plan.steps:
+        if plan.source == "template:conversation":
+            append_history(request, plan.source, plan.risk, True, 0)
+            return 0
         append_history(request, plan.source, plan.risk, False, 1)
         return 1
     append_history(request, plan.source, plan.risk, False, 0)
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
+def _main_impl(argv: list[str] | None = None) -> int:
     """CLI entry point used by the installed ``cairos`` console command."""
     args = list(sys.argv[1:] if argv is None else argv)
 
@@ -1109,6 +1363,10 @@ def main(argv: list[str] | None = None) -> int:
         return _handle_find_dir(rest)
     if command == "config":
         return _handle_config(rest)
+    if command in {"update", "upgrade"}:
+        return _handle_update(rest)
+    if command == "backup-config":
+        return _handle_backup_config()
     if command == "rules":
         return _handle_rules(rest)
     if command == "doctor":
@@ -1133,6 +1391,14 @@ def main(argv: list[str] | None = None) -> int:
         return _handle_history(rest)
 
     return _handle_free_task(args)
+
+
+def main(argv: list[str] | None = None) -> int:
+    try:
+        return _main_impl(argv)
+    except ConfigError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

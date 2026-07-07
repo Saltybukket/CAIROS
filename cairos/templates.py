@@ -17,6 +17,7 @@ import shlex
 
 from .models import CommandStep, Plan, VerificationStep
 from .rules import load_rules
+from .shell_utils import clean_target_name, directory_search_command, is_safe_search_name, shell_from_request
 from .text import candidate_words, has_all, has_concept, tokenize
 
 PROJECT_NAME_RE = r"[a-zA-Z][a-zA-Z0-9_-]*"
@@ -1119,27 +1120,39 @@ def _echo_plan(request: str) -> Plan | None:
 
 def _cd_warning_plan(request: str) -> Plan | None:
     text = request.lower()
-    if not (re.search(r"\b(?:go|cd|change)\s+(?:into|to)\s+(?:(?:directory|folder)\s+)?", text) or "using the find command" in text and "directory" in text):
+    if not (re.search(r"\b(?:go|cd|change)\s+(?:into|to)\s+(?:(?:the\s+)?(?:directory|folder)\s+)?", text) or "using the find command" in text and "directory" in text):
         return None
     name = _extract_named_value(request, "any")
     if not name:
-        match = re.search(r"(?:directory|folder)\s+([A-Za-z0-9_.-]+)", request, flags=re.IGNORECASE)
+        match = re.search(r"(?:directory|folder)\s+(.+?)(?:\s+mind\s+that|\s+using\s+|\s+from\s+here|$)", request, flags=re.IGNORECASE)
         if not match:
-            match = re.search(r"\b(?:go|cd|change)\s+(?:into|to)\s+([A-Za-z0-9_.-]+)", request, flags=re.IGNORECASE)
+            match = re.search(r"\b(?:go|cd|change)\s+(?:into|to)\s+(.+?)(?:\s+mind\s+that|\s+using\s+|\s+from\s+here|$)", request, flags=re.IGNORECASE)
         name = match.group(1) if match else "<name>"
+    name = clean_target_name(name)
+    shell = shell_from_request(request)
+    if not is_safe_search_name(name):
+        return Plan(
+            summary="Refuse unsafe directory search target.",
+            steps=[],
+            risk="high",
+            requires_confirmation=False,
+            notes=["Directory names for shell search guidance must not contain shell metacharacters."],
+            source="template:cd-guidance",
+        )
     return Plan(
         summary="Explain how to change directories from the parent shell.",
         steps=[
             CommandStep(
                 kind="command",
-                command=f"find . -maxdepth 4 -type d -iname {shlex.quote(name)} -print",
-                description="Print matching directory paths; use a shell wrapper to cd into one.",
+                command=directory_search_command(name, shell),
+                description="Print matching directory paths; use a shell wrapper or copy a cd command.",
             )
         ],
         risk="low",
         requires_confirmation=False,
         notes=[
-            "CAIROS cannot permanently change the parent shell directory from a normal child process.",
+            "A child process cannot permanently change the parent shell's working directory.",
+            "CAIROS can search for the directory and print the command you should run.",
             "Use a shell wrapper around `cairos find-dir <name>` or copy one of the printed paths into `cd`.",
         ],
         source="template:cd-guidance",
@@ -1182,10 +1195,32 @@ def _run_tests_plan(_: str) -> Plan:
     )
 
 
+def _conversation_plan(request: str) -> Plan | None:
+    text = request.strip().lower().rstrip("!?.,")
+    greetings = {"hello", "hi", "hey", "how are you", "thanks", "thank you", "danke"}
+    if text not in greetings:
+        return None
+    return Plan(
+        summary="Acknowledged conversational input. No shell planning task was requested.",
+        steps=[],
+        risk="low",
+        requires_confirmation=False,
+        notes=[
+            "CAIROS is ready to help with shell planning, project setup, file operations and diagnostics.",
+            "No commands were run for this conversational input.",
+        ],
+        source="template:conversation",
+    )
+
+
 def plan_from_template(request: str) -> Plan | None:
     """Return a deterministic plan for a known request, or ``None``."""
     tokens = tokenize(request)
     text = request.lower()
+
+    conversation_plan = _conversation_plan(request)
+    if conversation_plan:
+        return conversation_plan
 
     echo_plan = _echo_plan(request)
     if echo_plan:

@@ -27,6 +27,26 @@ class TemplateParserTests(unittest.TestCase):
         plan = plan_from_template('create a project folder with a file that has a class')
         self.assertIsNone(plan)
 
+    def test_cd_guidance_windows_cmd(self):
+        plan = plan_from_template('go into the directory TU-Graz. mind that you are in windows cmd')
+        self.assertIsNotNone(plan)
+        assert plan is not None
+        self.assertEqual(plan.source, 'template:cd-guidance')
+        self.assertIn('dir /s /b /ad *TU-Graz*', plan.steps[0].command or '')
+        self.assertNotIn('find . -maxdepth', plan.steps[0].command or '')
+        self.assertIn('parent shell', '\n'.join(plan.notes))
+
+    def test_cd_guidance_powershell_and_posix(self):
+        ps = plan_from_template('go into the directory my folder mind that you are in powershell')
+        self.assertIsNotNone(ps)
+        assert ps is not None
+        self.assertIn('Get-ChildItem', ps.steps[0].command or '')
+        self.assertIn("'my folder'", ps.steps[0].command or '')
+        bash = plan_from_template('go into the directory TU-Graz mind that you are in bash')
+        self.assertIsNotNone(bash)
+        assert bash is not None
+        self.assertIn('find . -maxdepth 4', bash.steps[0].command or '')
+
 
 if __name__ == '__main__':
     unittest.main()
