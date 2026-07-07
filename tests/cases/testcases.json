@@ -1311,6 +1311,14 @@
     "expected_exit": 0
   },
   {
+    "name": "Fuzzy directory filler is ignored",
+    "command": ["python3", "-m", "cairos.cli", "plan", "go", "into", "the", "directory", "oop", "ss26", "at", "least", "its", "named", "something", "like", "that"],
+    "expected_contains": ["Source: template:cd-guidance", "oop", "ss26"],
+    "expected_not_contains": ["*something*"],
+    "expected_stderr": "",
+    "expected_exit": 0
+  },
+  {
     "name": "AI config help prints useful commands",
     "command": ["python3", "-m", "cairos.cli", "config", "ai", "--help"],
     "expected_contains": ["CAIROS AI configuration", "cairos config ai profiles", "cairos config ai list-providers", "Never store raw API keys"],

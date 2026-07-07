@@ -51,7 +51,7 @@ from .planner import make_plan
 from .preview import diff_plan, preview_plan
 from .rules import init_global_rules, init_local_rules, local_rules_path, rules_json, set_rule
 from .safety import check_command
-from .shell_utils import clean_target_name, cd_command_for_path, path_depth
+from .shell_utils import clean_target_name, cd_command_for_path, fuzzy_search_terms, path_depth, strip_fuzzy_fillers
 from .text import looks_like_shell_command
 
 RESERVED = {"plan", "expand", "run", "check", "explain", "context", "config", "rules", "doctor", "history", "preview", "diff", "help", "update", "upgrade", "backup-config"}
@@ -441,15 +441,21 @@ def _iter_find_dir_roots() -> list[Path]:
 
 def _find_dirs(name: str, max_depth: int = 4, start: Path | None = None, exact: bool = False, ignore_case: bool = True, max_dirs_scanned: int = 600) -> list[Path]:
     """Return bounded directory matches for wrapper-friendly navigation."""
-    cleaned = clean_target_name(name)
+    cleaned = strip_fuzzy_fillers(name)
     target = cleaned.lower() if ignore_case else cleaned
+    terms = fuzzy_search_terms(cleaned)
+    compare_terms = [term.lower() for term in terms] if ignore_case else terms
     scanned = 0
     ignored = {"appdata", ".git", ".venv", "venv", "env", "node_modules", ".local", "library", "onedrive"}
     matches: list[Path] = []
 
     def is_match(entry: Path) -> bool:
         candidate = entry.name.lower() if ignore_case else entry.name
-        return candidate == target if exact else target in candidate
+        if exact:
+            return candidate == target
+        if compare_terms:
+            return all(term in candidate for term in compare_terms)
+        return target in candidate
 
     def walk(root: Path, depth: int, base: Path) -> None:
         nonlocal scanned

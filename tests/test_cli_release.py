@@ -3,6 +3,7 @@ import io
 import os
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from cairos.cli import main
@@ -47,6 +48,20 @@ class CLIReleaseTests(unittest.TestCase):
         code, out, _ = self.run_cli(["config", "ai", "--help"])
         self.assertEqual(code, 0)
         self.assertIn("use-openrouter-free", out)
+
+    def test_find_dir_fuzzy_multi_word(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "oop-project-ss26"
+            target.mkdir()
+            old = os.getcwd()
+            try:
+                os.chdir(root)
+                code, out, err = self.run_cli(["find-dir", "oop ss26"], home=tempfile.mkdtemp())
+            finally:
+                os.chdir(old)
+            self.assertEqual(code, 0, err)
+            self.assertIn("oop-project-ss26", out)
 
 
 if __name__ == "__main__":

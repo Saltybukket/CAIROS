@@ -17,7 +17,7 @@ import shlex
 
 from .models import CommandStep, Plan, VerificationStep
 from .rules import load_rules
-from .shell_utils import clean_target_name, directory_search_command, is_safe_search_name, shell_from_request
+from .shell_utils import clean_target_name, cd_command_for_path, directory_search_command, is_safe_search_name, shell_from_request, strip_fuzzy_fillers
 from .text import candidate_words, has_all, has_concept, tokenize
 
 PROJECT_NAME_RE = r"[a-zA-Z][a-zA-Z0-9_-]*"
@@ -1120,15 +1120,18 @@ def _echo_plan(request: str) -> Plan | None:
 
 def _cd_warning_plan(request: str) -> Plan | None:
     text = request.lower()
-    if not (re.search(r"\b(?:go|cd|change)\s+(?:into|to)\s+(?:(?:the\s+)?(?:directory|folder)\s+)?", text) or "using the find command" in text and "directory" in text):
+    if not (
+        re.search(r"\b(?:go|cd|change)\s+(?:into|to)\s+(?:(?:the\s+)?(?:directory|folder)\s+)?", text)
+        or re.search(r"\bfind\s+(?:the\s+)?(?:directory|folder|dir)\s+", text)
+        or "using the find command" in text and "directory" in text
+    ):
         return None
-    name = _extract_named_value(request, "any")
-    if not name:
-        match = re.search(r"(?:directory|folder)\s+(.+?)(?:\s+mind\s+that|\s+using\s+|\s+from\s+here|$)", request, flags=re.IGNORECASE)
-        if not match:
-            match = re.search(r"\b(?:go|cd|change)\s+(?:into|to)\s+(.+?)(?:\s+mind\s+that|\s+using\s+|\s+from\s+here|$)", request, flags=re.IGNORECASE)
-        name = match.group(1) if match else "<name>"
-    name = clean_target_name(name)
+    match = re.search(r"(?:directory|folder|dir)\s+(.+?)(?:\s+mind\s+that|\s+using\s+|\s+from\s+here|$)", request, flags=re.IGNORECASE)
+    if not match:
+        match = re.search(r"\b(?:go|cd|change)\s+(?:into|to)\s+(?:the\s+)?(.+?)(?:\s+mind\s+that|\s+using\s+|\s+from\s+here|$)", request, flags=re.IGNORECASE)
+    if not match:
+        match = re.search(r"\bfind\s+(?:the\s+)?(?:directory|folder|dir)\s+(.+?)$", request, flags=re.IGNORECASE)
+    name = strip_fuzzy_fillers(match.group(1) if match else (_extract_named_value(request, "any") or "<name>"))
     shell = shell_from_request(request)
     if not is_safe_search_name(name):
         return Plan(
@@ -1154,6 +1157,7 @@ def _cd_warning_plan(request: str) -> Plan | None:
             "A child process cannot permanently change the parent shell's working directory.",
             "CAIROS can search for the directory and print the command you should run.",
             "Use a shell wrapper around `cairos find-dir <name>` or copy one of the printed paths into `cd`.",
+            f"After you identify the matching path, run: {cd_command_for_path('<matched-path>', shell)}",
         ],
         source="template:cd-guidance",
     )

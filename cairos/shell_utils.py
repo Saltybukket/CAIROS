@@ -10,6 +10,25 @@ from .config import detect_shell_kind
 
 TRAILING_SENTENCE_PUNCTUATION = ".,;:!?"
 UNSAFE_SEARCH_CHARS_RE = re.compile(r"[;&|><`$(){}\n\r]")
+FUZZY_FILLER_PATTERNS = [
+    r"\bat\s+least\b",
+    r"\b(?:it'?s|its)\s+named\b",
+    r"\bcalled\s+something\s+like\b",
+    r"\bnamed\s+something\s+like\b",
+    r"\bsomething\s+like\s+that\b",
+    r"\bor\s+something\b",
+    r"\bprobably\b",
+    r"\bmaybe\b",
+    r"\bi\s+think\b",
+    r"\bso\s+ahnlich\b",
+    r"\bso\s+ähnlich\b",
+    r"\birgendwie\b",
+    r"\bheiss?t\s+ungefahr\b",
+    r"\bheißt\s+ungefähr\b",
+    r"\boder\s+so\b",
+    r"\bglaube\s+ich\b",
+]
+STOP_WORDS = {"the", "a", "an", "directory", "folder", "dir", "into", "to", "go", "cd", "change", "find"}
 
 
 def shell_from_request(request: str, default: str | None = None) -> str:
@@ -34,6 +53,27 @@ def clean_target_name(value: str) -> str:
     return cleaned
 
 
+def strip_fuzzy_fillers(value: str) -> str:
+    """Remove uncertainty/filler language from a possible directory target."""
+    cleaned = value
+    for pattern in FUZZY_FILLER_PATTERNS:
+        cleaned = re.sub(pattern, " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return clean_target_name(cleaned)
+
+
+def fuzzy_search_terms(value: str) -> list[str]:
+    """Return safe useful terms for fuzzy directory search."""
+    cleaned = strip_fuzzy_fillers(value)
+    terms: list[str] = []
+    for term in re.findall(r"[A-Za-z0-9_.-]+", cleaned):
+        term = clean_target_name(term)
+        if not term or term.lower() in STOP_WORDS or term.lower() == "something":
+            continue
+        terms.append(term)
+    return terms
+
+
 def is_safe_search_name(value: str) -> bool:
     return bool(value) and not UNSAFE_SEARCH_CHARS_RE.search(value)
 
@@ -49,16 +89,30 @@ def quote_for_shell(value: str, shell: str) -> str:
 
 def directory_search_command(name: str, shell: str, max_depth: int = 4) -> str:
     """Return a shell-appropriate bounded directory search command."""
-    cleaned = clean_target_name(name)
+    cleaned = strip_fuzzy_fillers(name)
+    terms = fuzzy_search_terms(cleaned)
+    if not terms:
+        terms = [cleaned]
     if shell == "cmd":
-        return f"dir /s /b /ad *{cleaned}*"
+        pattern = "*" + "*".join(terms) + "*"
+        return f"dir /s /b /ad {pattern}"
     if shell == "powershell":
-        quoted = quote_for_shell(cleaned, "powershell")
+        if len(terms) > 1:
+            escaped_terms = [term.replace("'", "''") for term in terms]
+            checks = " -and ".join(f"$_.Name -like '*{term}*'" for term in escaped_terms)
+            return (
+                "Get-ChildItem -Path . -Directory -Recurse -ErrorAction SilentlyContinue | "
+                f"Where-Object {{ {checks} }} | Select-Object -ExpandProperty FullName"
+            )
+        quoted = quote_for_shell(f"*{terms[0]}*", "powershell")
         return (
             f"Get-ChildItem -Path . -Directory -Recurse -Filter {quoted} "
             "-ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName"
         )
-    quoted = shlex.quote(f"*{cleaned}*")
+    if len(terms) > 1:
+        predicates = " -o ".join(f"-iname {shlex.quote(f'*{term}*')}" for term in terms)
+        return f"find . -maxdepth {max_depth} -type d \\( {predicates} \\) -print"
+    quoted = shlex.quote(f"*{terms[0]}*")
     return f"find . -maxdepth {max_depth} -type d -iname {quoted} -print"
 
 

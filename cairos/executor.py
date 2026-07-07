@@ -7,6 +7,7 @@ commands. It always re-runs safety checks before executing a plan.
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 from .models import CommandStep, Plan, VerificationStep
 from .safety import check_steps
@@ -89,6 +90,7 @@ def execute_plan(plan: Plan, yes: bool = False) -> int:
             return 130
 
     for step in plan.steps:
+        sys.stdout.flush()
         exit_code = _execute_step(step)
         if exit_code != 0:
             print(f"Step failed with exit code {exit_code}: {step.display()}")
@@ -103,6 +105,11 @@ def execute_plan(plan: Plan, yes: bool = False) -> int:
             failed = failed or not ok
         if failed:
             return 3
+
+    if plan.source == "template:cd-guidance" and plan.notes:
+        print("Next:")
+        for note in plan.notes:
+            print(f"- {note}")
 
     print("Done.")
     return 0

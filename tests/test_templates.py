@@ -41,11 +41,45 @@ class TemplateParserTests(unittest.TestCase):
         self.assertIsNotNone(ps)
         assert ps is not None
         self.assertIn('Get-ChildItem', ps.steps[0].command or '')
-        self.assertIn("'my folder'", ps.steps[0].command or '')
+        self.assertIn("'*my*'", ps.steps[0].command or '')
         bash = plan_from_template('go into the directory TU-Graz mind that you are in bash')
         self.assertIsNotNone(bash)
         assert bash is not None
         self.assertIn('find . -maxdepth 4', bash.steps[0].command or '')
+
+    def test_fuzzy_directory_fillers_are_not_targets(self):
+        examples = [
+            'go into the directory oop ss26 at least its named something like that',
+            'go into the directory oop ss26 or something',
+            'cd into oop ss26 maybe',
+            'find directory TU Graz something like that',
+            'go into directory Analysis 2 glaube ich',
+        ]
+        for request in examples:
+            with self.subTest(request=request):
+                plan = plan_from_template(request + ' mind that you are in bash')
+                self.assertIsNotNone(plan)
+                assert plan is not None
+                command = plan.steps[0].command or ''
+                self.assertNotIn('*something*', command)
+                self.assertIn('find . -maxdepth 4', command)
+        plan = plan_from_template('go into the directory oop ss26 at least its named something like that mind that you are in bash')
+        assert plan is not None
+        self.assertIn('oop', plan.steps[0].command or '')
+        self.assertIn('ss26', plan.steps[0].command or '')
+
+    def test_fuzzy_directory_shell_specific_commands(self):
+        cmd = plan_from_template('go into the directory oop ss26 or something mind that you are in windows cmd')
+        self.assertIsNotNone(cmd)
+        assert cmd is not None
+        self.assertIn('dir /s /b /ad *oop*ss26*', cmd.steps[0].command or '')
+        self.assertNotIn('find . -maxdepth', cmd.steps[0].command or '')
+        ps = plan_from_template('go into the directory oop ss26 or something mind that you are in powershell')
+        self.assertIsNotNone(ps)
+        assert ps is not None
+        self.assertIn('Get-ChildItem', ps.steps[0].command or '')
+        self.assertIn("'*oop*'", ps.steps[0].command or '')
+        self.assertIn("'*ss26*'", ps.steps[0].command or '')
 
 
 if __name__ == '__main__':
