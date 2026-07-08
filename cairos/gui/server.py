@@ -40,7 +40,7 @@ or, when available from PyPI:
   pipx install "cairos-shell[gui]"
 
 For editable/dev install:
-  python -m pip install -e ".[gui]"
+  python -m pip install -e ".[gui,dev]"
 """
 
 
@@ -99,9 +99,18 @@ def run_gui(host: str = "127.0.0.1", port: int = 0, no_open: bool = False, debug
     print("")
     print("Press Ctrl+C to stop.")
     if not no_open:
-        webbrowser.open(url)
+        try:
+            opened = webbrowser.open(url)
+        except Exception as exc:
+            opened = False
+            print(f"Could not open a browser automatically ({exc.__class__.__name__}).")
+        if not opened:
+            print("Could not open a browser automatically. Paste the URL above into your browser.")
     server = Server(Config(app=app, host=host, port=chosen_port, log_level="debug" if debug else "warning"))
-    server.run()
+    try:
+        server.run()
+    except KeyboardInterrupt:
+        print("\nCAIROS GUI stopped.")
     return 0
 
 

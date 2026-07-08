@@ -5,6 +5,10 @@ This file records notable CAIROS changes by release.
 ## 0.5.0a4
 
 - Prepared the next PyPI alpha after `0.5.0a3` was already published.
+- Routed `make a new dir named ...` through the deterministic folder template.
+- Added a safe deterministic refusal for deleting the current working folder.
+- Made `cairos run` show plan context when there are no executable steps.
+- Improved `cairos gui` browser-open failure messaging and Ctrl+C shutdown.
 - Fixed a non-interactive JSON testcase that could hang on `cairos config ai switch`.
 - Hardened the JSON test runner so subprocess timeouts with byte output report
   clean failures instead of crashing.

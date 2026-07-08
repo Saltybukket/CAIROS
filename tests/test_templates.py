@@ -27,6 +27,24 @@ class TemplateParserTests(unittest.TestCase):
         plan = plan_from_template('create a project folder with a file that has a class')
         self.assertIsNone(plan)
 
+    def test_make_new_dir_named_uses_folder_template(self):
+        plan = plan_from_template('make a new dir named local_ai2')
+        self.assertIsNotNone(plan)
+        assert plan is not None
+        self.assertEqual(plan.source, 'template:folder')
+        self.assertEqual(plan.summary, 'Create folder local_ai2.')
+        self.assertEqual(plan.steps[0].kind, 'mkdir')
+        self.assertEqual(plan.steps[0].path, 'local_ai2')
+
+    def test_delete_current_folder_is_refused_without_ai(self):
+        plan = plan_from_template('delete the current folder')
+        self.assertIsNotNone(plan)
+        assert plan is not None
+        self.assertEqual(plan.source, 'template:refuse-delete-current-folder')
+        self.assertEqual(plan.risk, 'critical')
+        self.assertEqual(plan.steps, [])
+        self.assertIn('will not delete', '\n'.join(plan.notes))
+
     def test_cd_guidance_windows_cmd(self):
         plan = plan_from_template('go into the directory TU-Graz. mind that you are in windows cmd')
         self.assertIsNotNone(plan)

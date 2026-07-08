@@ -655,10 +655,16 @@ echo "TODO: add setup commands"
 
 
 def _create_folder_plan(request: str) -> Plan:
-    match = re.search(r"\b(?:make|create|mkdir|mache|macke|mach|erstelle|erstell)\s+(?:nested\s+)?(?:folder|directory|dir|ordner|verzeichnis)\s+(.+)$", request, flags=re.IGNORECASE)
+    match = re.search(
+        r"\b(?:make|create|mkdir|mache|macke|mach|erstelle|erstell)\s+"
+        r"(?:(?:a|an)\s+)?(?:new\s+)?(?:nested\s+)?"
+        r"(?:folder|directory|dir|ordner|verzeichnis)\s+(.+)$",
+        request,
+        flags=re.IGNORECASE,
+    )
     if not match:
         return _unsafe_path_plan("<missing-folder-name>")
-    name = match.group(1).strip().strip('"').strip("'")
+    name = (_extract_named_value(request, "folder") or match.group(1)).strip().strip('"').strip("'")
     safe_name = _safe_rel_path(name)
     if safe_name is None:
         return _unsafe_path_plan(name)
@@ -668,6 +674,21 @@ def _create_folder_plan(request: str) -> Plan:
         risk="low",
         verification=[VerificationStep(kind="dir_exists", target=safe_name)],
         source="template:folder",
+    )
+
+
+def _delete_current_folder_plan(_: str) -> Plan:
+    return Plan(
+        summary="Refuse to delete the current folder.",
+        steps=[],
+        risk="critical",
+        requires_confirmation=False,
+        notes=[
+            "CAIROS will not delete the current working directory from inside itself.",
+            "Move to the parent directory first and name the folder explicitly if you really want to remove it.",
+            "Example: cd .. && cairos plan delete folder <folder-name>",
+        ],
+        source="template:refuse-delete-current-folder",
     )
 
 
@@ -1235,6 +1256,9 @@ def plan_from_template(request: str) -> Plan | None:
     if "powershell" in tokens and ("script" in tokens or "ps1" in text) and has_concept(tokens, "make"):
         return _powershell_script_plan(request)
 
+    if re.search(r"\b(?:delete|remove|rm|loesche)\s+(?:the\s+)?(?:current|this)\s+(?:folder|directory|dir|ordner|verzeichnis)\b", text):
+        return _delete_current_folder_plan(request)
+
     if _looks_like_cpp_compound_request(tokens, text):
         return _cpp_compound_plan(request)
 
@@ -1389,7 +1413,12 @@ def plan_from_template(request: str) -> Plan | None:
     if re.search(r"\b(?:create|make|mkdir)\s+folders\s+", text):
         return _create_folders_plan(request)
 
-    if not _has_multiple_creation_targets(tokens, text) and re.search(r"\b(?:make|create|mkdir|mache|macke|mach|erstelle|erstell)\s+(?:nested\s+)?(?:folder|directory|dir|ordner|verzeichnis)\s+\S+", text):
+    if not _has_multiple_creation_targets(tokens, text) and re.search(
+        r"\b(?:make|create|mkdir|mache|macke|mach|erstelle|erstell)\s+"
+        r"(?:(?:a|an)\s+)?(?:new\s+)?(?:nested\s+)?"
+        r"(?:folder|directory|dir|ordner|verzeichnis)\s+\S+",
+        text,
+    ):
         return _create_folder_plan(request)
 
     if not _has_multiple_creation_targets(tokens, text) and re.search(rf"\b(?:create|make|touch|erstelle|erstell|mache|macke)\s+(?:a\s+|an\s+)?(?:empty\s+)?(?:file|datei)\s+(?:(?:named|called|namens)\s+)?(?:{NAMED_VALUE_RE})(?:\s+with\s+.+)?\s*$", request, flags=re.IGNORECASE):
@@ -1538,7 +1567,18 @@ def debug_match_report(request: str) -> str:
     ]
     checks = [
         ("bash_script", ("script" in tokens or "skript" in tokens) and has_concept(tokens, "make"), "script plus create/make intent"),
-        ("folder", bool(re.search(r"\b(?:make|create|mkdir|mache|macke|mach|erstelle|erstell)\s+(?:nested\s+)?(?:folder|directory|dir|ordner|verzeichnis)\s+\S+", request.lower())), "anchored verb + folder + target"),
+        (
+            "folder",
+            bool(
+                re.search(
+                    r"\b(?:make|create|mkdir|mache|macke|mach|erstelle|erstell)\s+"
+                    r"(?:(?:a|an)\s+)?(?:new\s+)?(?:nested\s+)?"
+                    r"(?:folder|directory|dir|ordner|verzeichnis)\s+\S+",
+                    request.lower(),
+                )
+            ),
+            "anchored verb + folder + target",
+        ),
         ("git_inspection", any(t in tokens for t in {"commit", "repo", "branch", "git"}) and any(t in tokens for t in {"summary", "summarize", "check", "ready", "log"}), "read-only git inspection language"),
         ("python_project", has_concept(tokens, "python") and has_concept(tokens, "project") and has_concept(tokens, "make"), "python project create intent"),
     ]

@@ -111,7 +111,14 @@ def _verify(item: VerificationStep) -> tuple[bool, str]:
 
 def execute_plan(plan: Plan, yes: bool = False) -> int:
     if not plan.steps:
-        print("Nothing to execute.")
+        print("No executable steps.")
+        print(f"Summary: {plan.summary}")
+        print(f"Source: {plan.source}")
+        print(f"Risk: {plan.risk}")
+        if plan.notes:
+            print("Notes:")
+            for note in plan.notes:
+                print(f"- {note}")
         return 1
 
     safety = check_steps(plan.steps)

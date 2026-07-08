@@ -2,7 +2,9 @@ import contextlib
 import importlib.util
 import io
 import os
+import sys
 import tempfile
+import types
 import unittest
 from unittest.mock import patch
 
@@ -11,7 +13,7 @@ from cairos.config import active_ai_profile_name, ai_fallback_settings, ai_profi
 from cairos.gui import actions
 from cairos.keys import validate_env_var_name
 from cairos.gui.security import mask_secret_text, same_origin, token_matches
-from cairos.gui.server import check_gui_support, dependency_status
+from cairos.gui.server import GuiCheck, check_gui_support, dependency_status, run_gui
 from cairos.gui.state import load_gui_state
 
 
@@ -123,6 +125,31 @@ class GuiStateActionTests(unittest.TestCase):
             code = main(["gui", "--host", "0.0.0.0", "--check"])
         self.assertEqual(code, 1)
         self.assertIn("Refusing to bind", out.getvalue())
+
+    def test_run_gui_handles_browser_failure_and_ctrl_c_cleanly(self):
+        class FakeConfig:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+        class FakeServer:
+            def __init__(self, config):
+                self.config = config
+
+            def run(self):
+                raise KeyboardInterrupt()
+
+        fake_uvicorn = types.SimpleNamespace(Config=FakeConfig, Server=FakeServer)
+        out = io.StringIO()
+        with patch("cairos.gui.server.check_gui_support", return_value=GuiCheck(True, ["ok"])):
+            with patch("cairos.gui.app.create_app", return_value=object()):
+                with patch.dict(sys.modules, {"uvicorn": fake_uvicorn}):
+                    with patch("webbrowser.open", return_value=False):
+                        with contextlib.redirect_stdout(out):
+                            code = run_gui(no_open=False)
+        self.assertEqual(code, 0)
+        output = out.getvalue()
+        self.assertIn("Could not open a browser automatically", output)
+        self.assertIn("CAIROS GUI stopped.", output)
 
     def test_origin_helper(self):
         class Url:
